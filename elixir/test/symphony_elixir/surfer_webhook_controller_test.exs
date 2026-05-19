@@ -1311,6 +1311,42 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
            }
   end
 
+  test "Discord message ingress is closed when Discord is disabled" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          discord:
+            enabled: false
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    conn =
+      post(build_conn(), "/webhooks/discord/message", %{
+        "id" => "message-disabled",
+        "guild_id" => "guild-1",
+        "channel_id" => "channel-1",
+        "content" => "surfer question"
+      })
+
+    assert json_response(conn, 404) == %{"error" => %{"code" => "not_found", "message" => "Route not found"}}
+    refute_receive {:unexpected_dispatch, _run_id}, 100
+  end
+
   test "Discord webhook rejects messages from unconfigured channels" do
     File.write!(
       Workflow.workflow_file_path(),

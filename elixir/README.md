@@ -111,8 +111,9 @@ notification webhook contract instead of re-enabling project polling as the defa
   cooldowns plus per-channel queued-run limits and optional ledger-backed daily user/channel run
   caps.
 - Discord message ingress at `/webhooks/discord/message` for gateway adapters or internal relays,
-  with `surfer.platforms.discord.message_ingress_path` and the same configured guild/channel
-  allowlists enforced before dispatch.
+  active only when `surfer.platforms.discord.enabled: true`, with
+  `surfer.platforms.discord.message_ingress_path` and the same configured guild/channel allowlists
+  enforced before dispatch.
 - Discord idempotency keys require real interaction IDs, or real guild/channel/message IDs for
   message-relay ingress.
 - Discord-to-Linear issue creation through Linear `issueCreate`.

@@ -127,6 +127,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
     response_conn =
       with :ok <- require_configured_path(conn, path),
+           :ok <- require_platform_enabled(discord.enabled),
            {:ok, request} <-
              Discord.Ingress.normalize_message(params,
                allowed_guilds: discord.allowed_guilds,
@@ -153,6 +154,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
         end
       else
         {:error, :unconfigured_webhook_path} ->
+          not_found_response(conn)
+
+        {:error, :platform_disabled} ->
           not_found_response(conn)
 
         {:error, {:unauthorized_guild, _guild_id}} ->
@@ -1581,6 +1585,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   defp require_secret(false, _value, _error), do: :ok
   defp require_secret(true, values, _error) when is_list(values) and values != [], do: :ok
   defp require_secret(true, _value, error), do: {:error, error}
+
+  defp require_platform_enabled(true), do: :ok
+  defp require_platform_enabled(_enabled), do: {:error, :platform_disabled}
 
   defp require_raw_body(%Conn{private: %{raw_body: raw_body}}) when is_binary(raw_body) and raw_body != "" do
     {:ok, raw_body}
