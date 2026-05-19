@@ -131,8 +131,9 @@ notification webhook contract instead of re-enabling project polling as the defa
   Linear and Discord ingress apply this routing before dispatch; ambiguous routing is recorded as
   `awaiting_input`, and Discord interactions edit the original response with the ambiguous
   repository candidates instead of silently starting work.
-- Daily Codex budget-cap enforcement at ingress from the SQLite usage ledger, plus per-run
-  budget-cap status marking when recorded run usage reaches the configured cap.
+- Daily Codex budget-cap enforcement at ingress from the SQLite usage ledger, plus active-run
+  per-run and shared daily budget-cap status marking when recorded usage reaches the configured
+  cap.
 - Optional workspace disk-pressure ingress blocking when `disk_pressure_max_used_percent` is set.
 - Workspace retention cleanup helper that preserves active and awaiting-review runs.
 - AgentRunner holds an exclusive `.surfer-run.lock` in the workspace while Codex is running.

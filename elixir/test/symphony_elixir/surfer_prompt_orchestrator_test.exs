@@ -867,6 +867,91 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert body =~ "per-run budget cap"
   end
 
+  test "orchestrator stops an active direct dispatch when shared daily budget is exhausted" do
+    db_path = Path.join(System.tmp_dir!(), "surfer-daily-budget-cap-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        codex:
+          daily_budget_usd: 1.0
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    parent = self()
+    previous_session_activity_fun = Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun)
+    on_exit(fn -> restore_app_env(:surfer_linear_session_activity_fun, previous_session_activity_fun) end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_session_activity_fun, fn session_id, type, body ->
+      send(parent, {:linear_activity, session_id, type, body})
+      :ok
+    end)
+
+    orchestrator_name = Module.concat(__MODULE__, :DailyBudgetCapOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+    end)
+
+    assert {:ok, request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "agentSession" => %{
+                 "id" => "session-daily-budget-cap-1",
+                 "issue" => %{
+                   "id" => "issue-daily-budget-cap-1",
+                   "identifier" => "ENG-2",
+                   "title" => "Fix shared budgeted bug",
+                   "state" => %{"name" => "Todo"}
+                 }
+               }
+             })
+
+    runner_fun = fn _issue, _recipient, _opts ->
+      send(parent, {:daily_budget_cap_runner_started, self()})
+
+      receive do
+        :release_runner -> :ok
+      after
+        60_000 -> :ok
+      end
+    end
+
+    assert :ok = Orchestrator.dispatch_run(orchestrator_name, request, runner_fun: runner_fun)
+    assert_receive {:daily_budget_cap_runner_started, runner_pid}, 1_000
+    runner_ref = Process.monitor(runner_pid)
+
+    assert :ok = Budget.record_usage(db_path, request.run_id, 1.25)
+
+    send(
+      pid,
+      {:codex_worker_update, "issue-daily-budget-cap-1",
+       %{
+         event: :notification,
+         payload: %{"method" => "thread/tokenUsage/updated", "params" => %{"usage" => %{"total_tokens" => 1}}},
+         timestamp: DateTime.utc_now()
+       }}
+    )
+
+    assert_receive {:DOWN, ^runner_ref, :process, ^runner_pid, _reason}, 1_000
+    assert %{running: []} = Orchestrator.snapshot(orchestrator_name, 1_000)
+    assert {:ok, %{"status" => "failed", "error_code" => "budget_cap"}} = RunLedger.get_run(db_path, request.run_id)
+    assert_receive {:linear_activity, "session-daily-budget-cap-1", :error, body}, 1_000
+    assert body =~ "daily budget cap"
+  end
+
   test "operator pause cancel mode terminates active direct dispatch runs" do
     previous_pause = Application.get_env(:symphony_elixir, :surfer_runtime_pause)
     on_exit(fn -> restore_app_env(:surfer_runtime_pause, previous_pause) end)
