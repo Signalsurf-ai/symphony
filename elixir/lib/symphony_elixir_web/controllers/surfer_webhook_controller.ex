@@ -54,7 +54,6 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   @spec linear_agent(Conn.t(), map()) :: Conn.t()
   def linear_agent(conn, params) do
     started_at = System.monotonic_time(:millisecond)
-    raw_body = conn.private[:raw_body] || Jason.encode!(params)
     signature = conn |> get_req_header("linear-signature") |> List.first()
     linear = Config.settings!().surfer.platforms.linear
     path = configured_path(linear.webhook_path, @default_linear_webhook_path)
@@ -63,6 +62,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     response_conn =
       with :ok <- require_configured_path(conn, path),
            :ok <- require_secret(linear.enabled, secrets, :missing_linear_webhook_secret),
+           {:ok, raw_body} <- require_raw_body(conn),
            :ok <- Webhook.verify(raw_body, signature, secrets),
            {:ok, request} <- RunRequest.from_linear_agent_session_event(params),
            {:ok, response} <- claim_run(request, :linear),
@@ -77,6 +77,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
         {:error, :missing_secret} ->
           error_response(conn, 503, "missing_linear_webhook_secret", "Linear webhook secret is required when Linear ingress is enabled")
+
+        {:error, :missing_raw_body} ->
+          error_response(conn, 400, "missing_raw_body", "Raw request body is required for webhook signature verification")
 
         {:error, :missing_signature} ->
           record_signature_failure(:linear, :missing_signature)
@@ -175,7 +178,6 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   @spec discord_interaction(Conn.t(), map()) :: Conn.t()
   def discord_interaction(conn, params) do
     started_at = System.monotonic_time(:millisecond)
-    raw_body = conn.private[:raw_body] || Jason.encode!(params)
     discord = Config.settings!().surfer.platforms.discord
     path = configured_path(discord.interactions_path, @default_discord_interactions_path)
     signature = conn |> get_req_header("x-signature-ed25519") |> List.first()
@@ -184,7 +186,8 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
     response_conn =
       with :ok <- require_configured_path(conn, path),
-           :ok <- require_secret(discord.enabled, public_keys, :missing_discord_public_key) do
+           :ok <- require_secret(discord.enabled, public_keys, :missing_discord_public_key),
+           {:ok, raw_body} <- require_raw_body(conn) do
         verify_discord_interaction(conn, params, raw_body, signature, timestamp, discord, public_keys, started_at)
       else
         {:error, :unconfigured_webhook_path} ->
@@ -192,6 +195,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
         {:error, :missing_discord_public_key} ->
           error_response(conn, 503, "missing_discord_public_key", "Discord public key is required when Discord ingress is enabled")
+
+        {:error, :missing_raw_body} ->
+          error_response(conn, 400, "missing_raw_body", "Raw request body is required for webhook signature verification")
       end
 
     emit_webhook_ack(:discord, path, started_at, response_conn)
@@ -1575,6 +1581,12 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   defp require_secret(false, _value, _error), do: :ok
   defp require_secret(true, values, _error) when is_list(values) and values != [], do: :ok
   defp require_secret(true, _value, error), do: {:error, error}
+
+  defp require_raw_body(%Conn{private: %{raw_body: raw_body}}) when is_binary(raw_body) and raw_body != "" do
+    {:ok, raw_body}
+  end
+
+  defp require_raw_body(_conn), do: {:error, :missing_raw_body}
 
   defp require_configured_path(%Conn{request_path: request_path}, configured_path) do
     if request_path == configured_path, do: :ok, else: {:error, :unconfigured_webhook_path}

@@ -5,7 +5,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
   import Plug.Conn
 
   alias SymphonyElixir.Surfer.{Budget, RunLedger, RunRequest}
-  alias SymphonyElixirWeb.Endpoint
+  alias SymphonyElixirWeb.{Endpoint, SurferWebhookController}
 
   @endpoint Endpoint
 
@@ -158,6 +158,57 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert first_activity_metadata.platform == :linear
     assert first_activity_metadata.run_id == request.run_id
     assert first_activity_metadata.linear_session_id == "session-1"
+  end
+
+  test "Linear webhook fails closed when raw body is unavailable" do
+    previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
+    on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)
+    System.put_env("LINEAR_WEBHOOK_SECRET", "secret")
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: $LINEAR_WEBHOOK_SECRET
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    params = %{
+      "webhookTimestamp" => System.system_time(:millisecond),
+      "type" => "AgentSessionEvent",
+      "agentSession" => %{
+        "id" => "session-missing-raw",
+        "issue" => %{"id" => "issue-missing-raw", "identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}}
+      }
+    }
+
+    body = Jason.encode!(params)
+    signature = :crypto.mac(:hmac, :sha256, "secret", body) |> Base.encode16(case: :lower)
+
+    conn =
+      build_conn(:post, "/webhooks/linear/agent")
+      |> put_req_header("linear-signature", signature)
+
+    response = SurferWebhookController.linear_agent(conn, params)
+
+    assert json_response(response, 400)["error"]["code"] == "missing_raw_body"
+    refute_receive {:unexpected_dispatch, _run_id}, 100
   end
 
   test "Linear webhook uses the configured webhook path only" do
@@ -2866,6 +2917,43 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert_receive {:telemetry, [:symphony, :surfer, :signature_failures], %{count: 1}, discord_failure}
     assert discord_failure == %{platform: :discord, reason: :invalid_signature}
     refute_receive {:unexpected_dispatch, _run_id}, 100
+  end
+
+  test "Discord interaction fails closed when raw body is unavailable" do
+    {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
+    on_exit(fn -> restore_env("DISCORD_PUBLIC_KEY", previous_public_key) end)
+    System.put_env("DISCORD_PUBLIC_KEY", Base.encode16(public_key, case: :lower))
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          discord:
+            enabled: true
+            public_key: $DISCORD_PUBLIC_KEY
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    params = %{"type" => 1}
+    body = Jason.encode!(params)
+    timestamp = Integer.to_string(System.system_time(:second))
+
+    conn =
+      build_conn(:post, "/webhooks/discord/interactions")
+      |> put_discord_signature_headers(body, private_key, timestamp)
+
+    response = SurferWebhookController.discord_interaction(conn, params)
+
+    assert json_response(response, 400)["error"]["code"] == "missing_raw_body"
   end
 
   test "Discord interaction rejects signatures outside configured replay window" do
