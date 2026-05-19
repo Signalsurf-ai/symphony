@@ -559,6 +559,60 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert File.dir?(Path.join([workspace_root, "web", failed.run_id]))
   end
 
+  test "orchestrator startup prunes expired Surfer ledger history after retention" do
+    root = Path.join(System.tmp_dir!(), "surfer-startup-ledger-prune-#{System.unique_integer([:positive])}")
+    workspace_root = Path.join(root, "workspaces")
+    db_path = Path.join([root, "state", "surfer.sqlite3"])
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    File.mkdir_p!(Path.dirname(db_path))
+    assert :ok = RunLedger.initialize(db_path)
+
+    old_terminal = discord_request!("message-ledger-prune-old")
+    recent_terminal = discord_request!("message-ledger-prune-recent")
+    old_key = RunRequest.idempotency_key(old_terminal)
+    recent_key = RunRequest.idempotency_key(recent_terminal)
+
+    assert {:ok, %{status: :claimed}} = RunLedger.claim_run(db_path, old_key, old_terminal, platform: :discord)
+    assert {:ok, %{status: :claimed}} = RunLedger.claim_run(db_path, recent_key, recent_terminal, platform: :discord)
+
+    old = DateTime.utc_now() |> DateTime.add(-91, :day) |> DateTime.to_iso8601()
+    recent = DateTime.utc_now() |> DateTime.add(-1, :day) |> DateTime.to_iso8601()
+
+    assert :ok = RunLedger.update_status(db_path, old_terminal.run_id, "running", now: old)
+    assert :ok = RunLedger.update_status(db_path, old_terminal.run_id, "completed", now: old)
+    assert :ok = RunLedger.update_status(db_path, recent_terminal.run_id, "running", now: recent)
+    assert :ok = RunLedger.update_status(db_path, recent_terminal.run_id, "completed", now: recent)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      workspace:
+        root: #{workspace_root}
+      surfer:
+        workspace_root: #{workspace_root}
+        storage:
+          sqlite_path: #{db_path}
+          retention_days: 90
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert {:ok, _state} = Orchestrator.init([])
+
+    assert {:error, :not_found} = RunLedger.get_run(db_path, old_terminal.run_id)
+    assert {:error, :not_found} = RunLedger.lookup_idempotency_key(db_path, old_key)
+    assert {:ok, _run} = RunLedger.get_run(db_path, recent_terminal.run_id)
+    assert {:ok, _run_id} = RunLedger.lookup_idempotency_key(db_path, recent_key)
+  end
+
   test "orchestrator reports Linear final activity when direct dispatch completes" do
     parent = self()
     previous_fun = Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun)

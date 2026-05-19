@@ -80,6 +80,15 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     end
   end
 
+  @spec prune_before(Path.t(), DateTime.t() | String.t()) :: {:ok, map()} | {:error, term()}
+  def prune_before(db_path, %DateTime{} = cutoff), do: prune_before(db_path, DateTime.to_iso8601(cutoff))
+
+  def prune_before(db_path, cutoff) when is_binary(db_path) and is_binary(cutoff) do
+    with :ok <- initialize(db_path) do
+      prune_before_initialized(db_path, cutoff)
+    end
+  end
+
   @spec claim_run(Path.t(), String.t(), RunRequest.t(), keyword()) ::
           {:ok, %{status: :claimed | :duplicate, run_id: String.t()}} | {:error, term()}
   def claim_run(db_path, key, %RunRequest{} = request, opts \\ [])
@@ -546,6 +555,53 @@ defmodule SymphonyElixir.Surfer.RunLedger do
         {:error, reason} -> {:error, reason}
       end
     end)
+  end
+
+  defp prune_before_conn(conn, cutoff) do
+    with {:ok, run_ids} <- prunable_terminal_run_ids(conn, cutoff),
+         :ok <- delete_run_history(conn, run_ids) do
+      {:ok, %{pruned_runs: run_ids, count: length(run_ids)}}
+    end
+  end
+
+  defp prune_before_initialized(db_path, cutoff) do
+    with_conn(db_path, fn conn ->
+      transaction(conn, fn -> prune_before_conn(conn, cutoff) end)
+    end)
+  end
+
+  defp prunable_terminal_run_ids(conn, cutoff) do
+    case query_all(
+           conn,
+           """
+           SELECT run_id
+           FROM runs
+           WHERE status IN ('completed', 'failed', 'cancelled')
+             AND COALESCE(completed_at, updated_at, created_at) < ?
+           ORDER BY run_id ASC;
+           """,
+           [cutoff]
+         ) do
+      {:ok, rows} -> {:ok, Enum.map(rows, & &1["run_id"])}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp delete_run_history(conn, run_ids) when is_list(run_ids) do
+    Enum.reduce_while(run_ids, :ok, fn run_id, :ok ->
+      case delete_one_run_history(conn, run_id) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp delete_one_run_history(conn, run_id) do
+    with :ok <- execute(conn, "DELETE FROM run_events WHERE run_id = ?;", [run_id]),
+         :ok <- execute(conn, "DELETE FROM run_links WHERE run_id = ?;", [run_id]),
+         :ok <- execute(conn, "DELETE FROM idempotency_keys WHERE run_id = ?;", [run_id]) do
+      execute(conn, "DELETE FROM runs WHERE run_id = ?;", [run_id])
+    end
   end
 
   defp reject_same_path(first_path, second_path) do

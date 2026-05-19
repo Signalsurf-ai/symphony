@@ -1103,6 +1103,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp run_terminal_workspace_cleanup(config) do
     run_legacy_terminal_workspace_cleanup(config)
     run_surfer_workspace_retention_cleanup(config)
+    run_surfer_ledger_retention_prune(config)
   end
 
   defp run_legacy_terminal_workspace_cleanup(config) do
@@ -1144,6 +1145,31 @@ defmodule SymphonyElixir.Orchestrator do
 
           {:error, reason} ->
             Logger.warning("Skipping Surfer startup workspace retention cleanup: #{inspect(reason)}")
+        end
+    end
+  end
+
+  defp run_surfer_ledger_retention_prune(config) do
+    storage = config.surfer.storage
+    db_path = storage.sqlite_path
+    retention_days = storage.retention_days
+
+    cond do
+      not populated_path?(db_path) or not File.exists?(db_path) ->
+        :ok
+
+      not is_integer(retention_days) or retention_days <= 0 ->
+        :ok
+
+      true ->
+        cutoff = DateTime.utc_now() |> DateTime.add(-retention_days, :day)
+
+        case RunLedger.prune_before(db_path, cutoff) do
+          {:ok, _summary} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Skipping Surfer ledger retention prune: #{inspect(reason)}")
         end
     end
   end

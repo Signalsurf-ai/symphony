@@ -348,6 +348,49 @@ defmodule SymphonyElixir.SurferLedgerTest do
     refute event["idempotency_hash"] =~ "hash-column-secret"
   end
 
+  test "prunes expired terminal run history with matching idempotency keys only", %{db_path: db_path} do
+    old_terminal = discord_request!("message-prune-old-terminal")
+    recent_terminal = discord_request!("message-prune-recent-terminal")
+    old_active = discord_request!("message-prune-old-active")
+
+    old_terminal_key = RunRequest.idempotency_key(old_terminal)
+    recent_terminal_key = RunRequest.idempotency_key(recent_terminal)
+    old_active_key = RunRequest.idempotency_key(old_active)
+
+    for {key, request} <- [
+          {old_terminal_key, old_terminal},
+          {recent_terminal_key, recent_terminal},
+          {old_active_key, old_active}
+        ] do
+      assert {:ok, %{status: :claimed}} = RunLedger.claim_run(db_path, key, request, platform: :discord)
+      assert :ok = RunLedger.record_link(db_path, request.run_id, %{platform: "discord", kind: "message", external_id: key})
+    end
+
+    cutoff = DateTime.utc_now() |> DateTime.add(-90, :day)
+    old = cutoff |> DateTime.add(-1, :day) |> DateTime.to_iso8601()
+    recent = cutoff |> DateTime.add(1, :day) |> DateTime.to_iso8601()
+
+    assert :ok = RunLedger.update_status(db_path, old_terminal.run_id, "running", now: old)
+    assert :ok = RunLedger.update_status(db_path, old_terminal.run_id, "completed", now: old)
+    assert :ok = RunLedger.update_status(db_path, recent_terminal.run_id, "running", now: recent)
+    assert :ok = RunLedger.update_status(db_path, recent_terminal.run_id, "completed", now: recent)
+    assert :ok = RunLedger.update_status(db_path, old_active.run_id, "running", now: old)
+
+    assert {:ok, %{pruned_runs: [old_run_id], count: 1}} = RunLedger.prune_before(db_path, cutoff)
+    assert old_run_id == old_terminal.run_id
+
+    assert {:error, :not_found} = RunLedger.get_run(db_path, old_terminal.run_id)
+    assert {:ok, _run} = RunLedger.get_run(db_path, recent_terminal.run_id)
+    assert {:ok, _run} = RunLedger.get_run(db_path, old_active.run_id)
+
+    assert {:error, :not_found} = RunLedger.lookup_idempotency_key(db_path, old_terminal_key)
+    assert {:ok, _run_id} = RunLedger.lookup_idempotency_key(db_path, recent_terminal_key)
+    assert {:ok, _run_id} = RunLedger.lookup_idempotency_key(db_path, old_active_key)
+
+    assert {:ok, []} = RunLedger.list_events(db_path, old_terminal.run_id)
+    assert {:ok, []} = RunLedger.list_links(db_path, old_terminal.run_id)
+  end
+
   test "records pending platform writes as outbox events", %{db_path: db_path} do
     assert {:ok, request} =
              RunRequest.from_discord_message(%{
@@ -629,5 +672,17 @@ defmodule SymphonyElixir.SurferLedgerTest do
 
     assert {:ok, 1} = RunLedger.count_discord_user_runs_since(db_path, "user-1", since)
     assert {:ok, 1} = RunLedger.count_discord_channel_runs_since(db_path, "channel-1", since)
+  end
+
+  defp discord_request!(message_id) do
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => message_id,
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question #{message_id}"
+             })
+
+    request
   end
 end
