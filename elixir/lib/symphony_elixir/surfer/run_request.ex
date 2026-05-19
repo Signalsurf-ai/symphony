@@ -4,9 +4,9 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   """
 
   alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.Surfer.SecretRedactor
 
   @prompt_context_max_chars 4_000
-  @redacted "[REDACTED]"
   @linear_agent_session_actions ~w(created prompted)
 
   defstruct [
@@ -238,10 +238,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   defp validate_linear_agent_session_action(action), do: {:error, {:unsupported_linear_agent_action, action}}
 
   defp redact_prompt_context(value) do
-    value
-    |> String.replace(~r/(bearer\s+)[^\s<>"']+/i, "\\1#{@redacted}")
-    |> String.replace(~r/((?:token|secret|password|api[_-]?key|webhook[_-]?secret)\s*[:=]\s*)[^\s<>"']+/i, "\\1#{@redacted}")
-    |> String.replace(~r/xox[a-zA-Z]-[A-Za-z0-9-]+/, @redacted)
+    SecretRedactor.redact_text(value)
   end
 
   defp bound_prompt_context(value) do

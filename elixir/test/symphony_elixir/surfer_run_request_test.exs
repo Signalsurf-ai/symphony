@@ -55,6 +55,8 @@ defmodule SymphonyElixir.SurferRunRequestTest do
       <issue identifier="ENG-1">Fix it</issue>
       Authorization: Bearer linear-oauth-secret
       DISCORD_BOT_TOKEN=discord-bot-secret
+      access_token: "quoted-oauth-secret"
+      webhook_secret='quoted-webhook-secret'
       """
 
     assert {:ok, request} =
@@ -71,8 +73,12 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert context.prompt_context =~ "<issue identifier=\"ENG-1\">Fix it</issue>"
     assert context.prompt_context =~ "Authorization: Bearer [REDACTED]"
     assert context.prompt_context =~ "DISCORD_BOT_TOKEN=[REDACTED]"
+    assert context.prompt_context =~ ~s(access_token: "[REDACTED]")
+    assert context.prompt_context =~ "webhook_secret='[REDACTED]'"
     refute context.prompt_context =~ "linear-oauth-secret"
     refute context.prompt_context =~ "discord-bot-secret"
+    refute context.prompt_context =~ "quoted-oauth-secret"
+    refute context.prompt_context =~ "quoted-webhook-secret"
   end
 
   test "normalizes Discord code questions and issue creation requests" do

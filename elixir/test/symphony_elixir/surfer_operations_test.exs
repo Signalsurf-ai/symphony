@@ -869,12 +869,15 @@ defmodule SymphonyElixir.SurferOperationsTest do
 
   test "secret redactor redacts quoted inline secret assignments" do
     redacted =
-      SecretRedactor.redact_text(~s(access_token: "oauth-secret" webhook_secret='hook-secret' bot_token = "bot-secret"))
+      SecretRedactor.redact_text(~s(access_token: "oauth-secret" webhook_secret='hook-secret' bot_token = "bot-secret" LINEAR_ACCESS_TOKEN=linear-secret))
 
-    assert redacted == ~s(access_token: "[REDACTED]" webhook_secret='[REDACTED]' bot_token = "[REDACTED]")
+    assert redacted ==
+             ~s(access_token: "[REDACTED]" webhook_secret='[REDACTED]' bot_token = "[REDACTED]" LINEAR_ACCESS_TOKEN=[REDACTED])
+
     refute redacted =~ "oauth-secret"
     refute redacted =~ "hook-secret"
     refute redacted =~ "bot-secret"
+    refute redacted =~ "linear-secret"
   end
 
   test "workspace cleanup preserves active runs and removes expired terminal workspaces", %{db_path: db_path} do
