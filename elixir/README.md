@@ -95,8 +95,8 @@ notification webhook contract instead of re-enabling project polling as the defa
 - Linear raw-body HMAC verification using `LINEAR_WEBHOOK_SECRET`.
 - Linear webhook payload type handling requires `AgentSessionEvent`; missing or non-agent event
   types return `400` without dispatch.
-- Linear `AgentSessionEvent` action handling accepts `created` and `prompted`; unsupported
-  actions return `400` without dispatch.
+- Linear `AgentSessionEvent` action handling accepts `created` and `prompted`; missing or
+  unsupported actions return `400` without dispatch.
 - Linear idempotency keys require real natural-key fields: agent session ID, and either a
   comment/issue ID for `created` or an agent activity ID for `prompted`.
 - Surfer v0.1 deployment defaults disable the legacy Symphony Linear project poller with

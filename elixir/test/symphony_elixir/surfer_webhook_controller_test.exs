@@ -120,6 +120,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       Jason.encode!(%{
         webhookTimestamp: System.system_time(:millisecond),
         type: "AgentSessionEvent",
+        action: "created",
         organizationId: "org-1",
         agentSession: %{
           id: "session-1",
@@ -192,6 +193,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     params = %{
       "webhookTimestamp" => System.system_time(:millisecond),
       "type" => "AgentSessionEvent",
+      "action" => "created",
       "agentSession" => %{
         "id" => "session-missing-raw",
         "issue" => %{"id" => "issue-missing-raw", "identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}}
@@ -312,6 +314,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       Jason.encode!(%{
         webhookTimestamp: System.system_time(:millisecond),
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-route-1",
           issue: %{
@@ -385,6 +388,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         webhookTimestamp: System.system_time(:millisecond),
         webhookId: "webhook-route-ambiguous",
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-route-ambiguous",
           issue: %{id: "issue-route-ambiguous", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -460,6 +464,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         webhookTimestamp: System.system_time(:millisecond),
         webhookId: "webhook-url-1",
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-url-1",
           issue: %{id: "issue-url-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -594,6 +599,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         webhookTimestamp: System.system_time(:millisecond),
         webhookId: "webhook-url-fail-1",
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-url-fail-1",
           issue: %{id: "issue-url-fail-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -672,6 +678,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         webhookTimestamp: System.system_time(:millisecond),
         webhookId: "webhook-start-fail-1",
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-start-fail-1",
           issue: %{id: "issue-start-fail-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -720,6 +727,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       Jason.encode!(%{
         webhookTimestamp: System.system_time(:millisecond),
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-1",
           issue: %{id: "issue-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -768,6 +776,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       Jason.encode!(%{
         webhookTimestamp: System.system_time(:millisecond),
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-disabled-linear",
           issue: %{id: "issue-disabled-linear", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -829,6 +838,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       Jason.encode!(%{
         webhookTimestamp: System.system_time(:millisecond),
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-bad-signature",
           issue: %{id: "issue-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -900,6 +910,62 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       |> post("/webhooks/linear/agent", body)
 
     assert json_response(conn, 400)["error"]["code"] == "unsupported_linear_agent_action"
+    refute_receive {:unexpected_started, _session_id, _run_id}, 100
+    refute_receive {:unexpected_dispatch, _run_id}, 100
+  end
+
+  test "Linear webhook rejects missing agent session actions without dispatching" do
+    previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
+    on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)
+    System.put_env("LINEAR_WEBHOOK_SECRET", "secret")
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: $LINEAR_WEBHOOK_SECRET
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_activity_fun, fn session_id, run_id ->
+      send(parent, {:unexpected_started, session_id, run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        webhookTimestamp: System.system_time(:millisecond),
+        webhookId: "webhook-missing-action",
+        type: "AgentSessionEvent",
+        agentSession: %{
+          id: "session-missing-action",
+          issue: %{id: "issue-missing-action", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
+        }
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("linear-signature", linear_signature(body, "secret"))
+      |> post("/webhooks/linear/agent", body)
+
+    assert json_response(conn, 400)["error"]["code"] == "missing_linear_agent_action"
     refute_receive {:unexpected_started, _session_id, _run_id}, 100
     refute_receive {:unexpected_dispatch, _run_id}, 100
   end
@@ -1195,6 +1261,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         webhookTimestamp: System.system_time(:millisecond),
         webhookId: "webhook-1",
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-1",
           issue: %{id: "issue-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -1359,6 +1426,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         webhookTimestamp: System.system_time(:millisecond),
         webhookId: "webhook-1",
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-1",
           issue: %{id: "issue-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -3562,6 +3630,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         webhookTimestamp: System.system_time(:millisecond),
         webhookId: "webhook-budget-1",
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-budget-1",
           issue: %{id: "issue-budget-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -3665,6 +3734,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
                "type" => "AgentSessionEvent",
+               "action" => "created",
                "agentSession" => %{
                  "id" => "session-requeue-1",
                  "issue" => %{"id" => "issue-requeue-1", "identifier" => "ENG-1", "title" => "Fix"}
@@ -4136,6 +4206,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         webhookTimestamp: System.system_time(:millisecond),
         webhookId: "webhook-disk-1",
         type: "AgentSessionEvent",
+        action: "created",
         agentSession: %{
           id: "session-disk-1",
           issue: %{id: "issue-disk-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
@@ -4311,6 +4382,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       webhookTimestamp: System.system_time(:millisecond),
       webhookId: webhook_id,
       type: "AgentSessionEvent",
+      action: "created",
       agentSession: %{
         id: session_id,
         issue: %{id: issue_id, identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}

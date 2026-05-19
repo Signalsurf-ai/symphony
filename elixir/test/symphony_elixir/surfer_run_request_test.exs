@@ -144,6 +144,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
                "type" => "AgentSessionEvent",
+               "action" => "created",
                "agentSession" => %{
                  "id" => "session-1",
                  "promptContext" => prompt_context,
@@ -230,6 +231,20 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     }
 
     assert {:error, {:unsupported_linear_agent_action, "archived"}} =
+             RunRequest.from_linear_agent_session_event(payload)
+  end
+
+  test "rejects Linear AgentSessionEvent payloads without an action" do
+    payload = %{
+      "type" => "AgentSessionEvent",
+      "webhookId" => "delivery-missing-action",
+      "agentSession" => %{
+        "id" => "session-missing-action",
+        "issue" => %{"id" => "issue-1", "identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}}
+      }
+    }
+
+    assert {:error, :missing_linear_agent_action} =
              RunRequest.from_linear_agent_session_event(payload)
   end
 
@@ -401,6 +416,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
                "type" => "AgentSessionEvent",
+               "action" => "created",
                "agentSession" => %{
                  "id" => "session-1",
                  "issue" => %{
