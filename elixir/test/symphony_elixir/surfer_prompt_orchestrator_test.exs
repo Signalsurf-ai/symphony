@@ -350,9 +350,6 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert {:ok, %{status: :claimed}} =
              RunLedger.claim_run(db_path, RunRequest.idempotency_key(request_one), request_one)
 
-    assert {:ok, %{status: :claimed}} =
-             RunLedger.claim_run(db_path, RunRequest.idempotency_key(request_two), request_two)
-
     runner_fun = fn _issue, _recipient, _opts ->
       send(parent, {:runner_started, self()})
 
@@ -366,6 +363,9 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert :ok = Orchestrator.dispatch_run(orchestrator_name, request_one, runner_fun: runner_fun)
     assert_receive {:runner_started, runner_pid}, 1_000
 
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, RunRequest.idempotency_key(request_two), request_two)
+
     assert {:error, {:already_claimed, "issue-claim-1"}} =
              Orchestrator.dispatch_run(orchestrator_name, request_two, runner_fun: runner_fun)
 
@@ -378,6 +378,95 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert Enum.any?(events, &(&1["event_type"] == "status_transition" and &1["payload_json"] =~ "already claimed"))
 
     send(runner_pid, :release_runner)
+  end
+
+  test "orchestrator refuses a ledger-claimed Linear issue after restart" do
+    db_path =
+      Path.join(
+        System.tmp_dir!(),
+        "surfer-ledger-claimed-dispatch-#{System.unique_integer([:positive])}.sqlite3"
+      )
+
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    assert :ok = RunLedger.initialize(db_path)
+
+    assert {:ok, existing_request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "action" => "created",
+               "agentSession" => %{
+                 "id" => "session-ledger-claim-1",
+                 "issue" => %{
+                   "id" => "issue-ledger-claim-1",
+                   "identifier" => "ENG-1",
+                   "title" => "Fix bug",
+                   "state" => %{"name" => "Todo"}
+                 }
+               }
+             })
+
+    assert {:ok, incoming_request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "action" => "created",
+               "agentSession" => %{
+                 "id" => "session-ledger-claim-2",
+                 "issue" => %{
+                   "id" => "issue-ledger-claim-1",
+                   "identifier" => "ENG-1",
+                   "title" => "Fix bug",
+                   "state" => %{"name" => "Todo"}
+                 }
+               }
+             })
+
+    existing_key = RunRequest.idempotency_key(existing_request)
+    incoming_key = RunRequest.idempotency_key(incoming_request)
+
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, existing_key, existing_request, platform: :linear)
+
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, incoming_key, incoming_request, platform: :linear)
+
+    orchestrator_name = Module.concat(__MODULE__, :LedgerClaimedAfterRestartOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+    end)
+
+    parent = self()
+
+    runner_fun = fn _issue, _recipient, _opts ->
+      send(parent, {:unexpected_runner_started, self()})
+      :ok
+    end
+
+    assert {:error, {:already_claimed, "issue-ledger-claim-1"}} =
+             Orchestrator.dispatch_run(orchestrator_name, incoming_request, runner_fun: runner_fun)
+
+    refute_receive {:unexpected_runner_started, _pid}, 100
+
+    assert {:ok, run} = RunLedger.get_run(db_path, incoming_request.run_id)
+    assert run["status"] == "awaiting_input"
+    assert run["error_code"] == "already_claimed"
+    assert run["error_message"] =~ "issue-ledger-claim-1"
   end
 
   test "orchestrator direct dispatch enforces one write run per routed repository" do

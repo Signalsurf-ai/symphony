@@ -248,6 +248,31 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     end)
   end
 
+  @spec count_open_linear_issue_runs(Path.t(), String.t(), keyword()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def count_open_linear_issue_runs(db_path, issue_id, opts \\ [])
+      when is_binary(db_path) and is_binary(issue_id) do
+    exclude_run_id = Keyword.get(opts, :exclude_run_id)
+
+    with_conn(db_path, fn conn ->
+      case query_all(
+             conn,
+             """
+             SELECT COUNT(*) AS count
+             FROM runs
+             WHERE linear_issue_id = ?
+               AND status IN ('queued', 'running', 'awaiting_input', 'awaiting_review')
+               AND (? IS NULL OR run_id != ?);
+             """,
+             [issue_id, exclude_run_id, exclude_run_id]
+           ) do
+        {:ok, [%{"count" => count} | _]} when is_integer(count) -> {:ok, count}
+        {:ok, _rows} -> {:ok, 0}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
   @spec count_discord_user_runs_since(Path.t(), String.t(), String.t()) ::
           {:ok, non_neg_integer()} | {:error, term()}
   def count_discord_user_runs_since(db_path, user_id, since_iso8601)
@@ -1049,6 +1074,7 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     CREATE INDEX IF NOT EXISTS runs_discord_actor_created_at_idx ON runs(source_platform, actor_id, created_at);
     CREATE INDEX IF NOT EXISTS runs_discord_channel_created_at_idx ON runs(source_platform, discord_channel_id, created_at);
     CREATE INDEX IF NOT EXISTS runs_linear_session_status_idx ON runs(source_platform, linear_agent_session_id, status);
+    CREATE INDEX IF NOT EXISTS runs_linear_issue_status_idx ON runs(linear_issue_id, status);
     CREATE INDEX IF NOT EXISTS runs_discord_channel_status_idx ON runs(source_platform, discord_channel_id, status);
     CREATE INDEX IF NOT EXISTS run_events_run_id_idx ON run_events(run_id);
     CREATE INDEX IF NOT EXISTS run_events_external_id_idx ON run_events(external_id);

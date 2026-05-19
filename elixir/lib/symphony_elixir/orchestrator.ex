@@ -1473,7 +1473,7 @@ defmodule SymphonyElixir.Orchestrator do
     surfer_context = RunRequest.surfer_context(request)
 
     cond do
-      direct_issue_already_claimed?(state, issue) ->
+      direct_issue_already_claimed?(state, request, issue) ->
         record_direct_dispatch_blocked(request, "awaiting_input",
           reason: "already claimed linear issue",
           actor: "surfer",
@@ -1760,11 +1760,48 @@ defmodule SymphonyElixir.Orchestrator do
     {[cancelled | cancelled_acc], terminate_running_issue(state, issue_id, false)}
   end
 
-  defp direct_issue_already_claimed?(%State{} = state, %Issue{id: issue_id}) when is_binary(issue_id) do
-    MapSet.member?(state.claimed, issue_id) or Map.has_key?(state.running, issue_id)
+  defp direct_issue_already_claimed?(%State{} = state, %RunRequest{} = request, %Issue{id: issue_id})
+       when is_binary(issue_id) do
+    MapSet.member?(state.claimed, issue_id) or Map.has_key?(state.running, issue_id) or
+      ledger_linear_issue_claimed?(request, issue_id)
   end
 
-  defp direct_issue_already_claimed?(_state, _issue), do: false
+  defp direct_issue_already_claimed?(_state, _request, _issue), do: false
+
+  defp ledger_linear_issue_claimed?(%RunRequest{run_id: run_id, lineage: %{linear: linear}}, issue_id)
+       when is_map(linear) and is_binary(issue_id) do
+    linear_issue_matches?(linear, issue_id) and ledger_has_open_linear_issue_run?(issue_id, run_id)
+  end
+
+  defp ledger_linear_issue_claimed?(_request, _issue_id), do: false
+
+  defp linear_issue_matches?(linear, issue_id) when is_map(linear) do
+    linear[:issue_id] == issue_id or linear["issue_id"] == issue_id
+  end
+
+  defp ledger_has_open_linear_issue_run?(issue_id, run_id) do
+    case surfer_ledger_path() do
+      {:ok, db_path} ->
+        count_open_linear_issue_runs(db_path, issue_id, run_id)
+
+      :disabled ->
+        false
+    end
+  end
+
+  defp count_open_linear_issue_runs(db_path, issue_id, run_id) do
+    case RunLedger.count_open_linear_issue_runs(db_path, issue_id, exclude_run_id: run_id) do
+      {:ok, count} when count > 0 ->
+        true
+
+      {:ok, _count} ->
+        false
+
+      {:error, reason} ->
+        Logger.warning("Unable to check Surfer ledger claim for linear_issue_id=#{issue_id}: #{inspect(reason)}")
+        false
+    end
+  end
 
   defp repository_write_busy?(%State{} = state, %RunRequest{} = request) do
     with true <- write_run?(request.request.mode),
