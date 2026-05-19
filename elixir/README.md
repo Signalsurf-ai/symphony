@@ -76,8 +76,9 @@ and is disabled in the Surfer workflow example.
 
 Linear Agent sessions are the Surfer v0.1 trigger contract. Delegating an issue to Surfer,
 mentioning Surfer, or sending a follow-up agent prompt should create `AgentSessionEvent` webhooks
-that enter `/webhooks/linear/agent`. Ordinary Linear issue status or comment changes are not a
-separate Surfer trigger in v0.1 unless Linear turns them into an agent-session event for Surfer.
+that enter `/webhooks/linear/agent`. Ordinary Linear issue status changes, comments that do not
+mention or prompt Surfer, and human assignee changes are not separate Surfer triggers in v0.1
+unless Linear turns them into an agent-session event for Surfer.
 If a future release needs broad status/comment notification triggers, add a distinct Linear
 notification webhook contract instead of re-enabling project polling as the default.
 
