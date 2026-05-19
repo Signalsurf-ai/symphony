@@ -14,6 +14,11 @@ tracker:
     - Duplicate
     - Done
 polling:
+  # This file is the legacy Symphony polling workflow. It is not the Surfer
+  # v0.1 hosting config; start Surfer from SURFER_WORKFLOW.example.md, where
+  # Linear AgentSessionEvent and Discord webhooks are the trigger path and this
+  # poller is disabled.
+  enabled: true
   interval_ms: 5000
 workspace:
   root: ~/code/symphony-workspaces
