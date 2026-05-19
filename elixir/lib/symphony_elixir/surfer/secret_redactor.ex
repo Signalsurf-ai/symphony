@@ -53,6 +53,6 @@ defmodule SymphonyElixir.Surfer.SecretRedactor do
   end
 
   defp secret_assignment_regex do
-    ~r/\b((?:discord_interaction_token|interaction_token|oauth_token|webhook_secret|access_token|refresh_token|bot_token|api[_-]?key|token|secret|password)\s*[:=]\s*)[^\s<>"']+/i
+    ~r/\b((?:discord_interaction_token|interaction_token|oauth_token|webhook_secret|access_token|refresh_token|bot_token|api[_-]?key|token|secret|password)\s*[:=]\s*["']?)[^\s<>"']+/i
   end
 end
