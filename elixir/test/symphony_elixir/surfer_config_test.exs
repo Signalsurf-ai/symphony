@@ -469,6 +469,31 @@ defmodule SymphonyElixir.SurferConfigTest do
     assert {:error, {:missing_surfer_platform_secret, :linear, :webhook_secret}} = Config.validate!()
   end
 
+  test "fails closed when GitHub App auth is configured for Surfer v0.1" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          github:
+            enabled: true
+            app_id: "12345"
+            private_key: "-----BEGIN PRIVATE KEY-----"
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "surfer.platforms.github.app_id"
+    assert message =~ "GitHub App auth is not supported in Surfer v0.1"
+  end
+
   test "fails closed when enabled Surfer platforms have no SQLite ledger path" do
     File.write!(
       Workflow.workflow_file_path(),

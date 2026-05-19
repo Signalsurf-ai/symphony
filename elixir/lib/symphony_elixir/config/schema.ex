@@ -423,6 +423,7 @@ defmodule SymphonyElixir.Config.Schema do
       import Ecto.Changeset
 
       @primary_key false
+      @unsupported_app_auth_fields ~w(app_id installation_id private_key private_key_env)
 
       embedded_schema do
         field(:enabled, :boolean, default: false)
@@ -434,7 +435,18 @@ defmodule SymphonyElixir.Config.Schema do
 
       @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
       def changeset(schema, attrs) do
-        cast(schema, attrs, [:enabled, :token, :token_env, :company_brain_repo, :company_brain_paths], empty_values: [])
+        schema
+        |> cast(attrs, [:enabled, :token, :token_env, :company_brain_repo, :company_brain_paths], empty_values: [])
+        |> reject_github_app_auth(attrs)
+      end
+
+      defp reject_github_app_auth(changeset, attrs) when is_map(attrs) do
+        attrs
+        |> Map.take(@unsupported_app_auth_fields)
+        |> Map.keys()
+        |> Enum.reduce(changeset, fn field, changeset ->
+          add_error(changeset, String.to_atom(field), "GitHub App auth is not supported in Surfer v0.1")
+        end)
       end
     end
 
