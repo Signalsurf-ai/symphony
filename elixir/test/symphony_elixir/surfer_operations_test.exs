@@ -588,6 +588,12 @@ defmodule SymphonyElixir.SurferOperationsTest do
            ] = get_in(compose, ["services", "surfer", "env_file"])
   end
 
+  test "Docker compose binds the Surfer HTTP service to loopback by default" do
+    compose = YamlElixir.read_from_file!(Path.expand("../../docker-compose.surfer.yml", __DIR__))
+
+    assert ["${SURFER_HOST_BIND:-127.0.0.1}:4000:4000"] = get_in(compose, ["services", "surfer", "ports"])
+  end
+
   test "operator requeues pending platform writes and records drained or failed outcomes", %{db_path: db_path} do
     request = claimed_request!(db_path)
 

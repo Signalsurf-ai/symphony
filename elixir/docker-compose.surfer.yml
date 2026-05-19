@@ -11,7 +11,7 @@ services:
     environment:
       HOME: /home/surfer
     ports:
-      - "4000:4000"
+      - "${SURFER_HOST_BIND:-127.0.0.1}:4000:4000"
     volumes:
       - ${SURFER_HOST_WORKSPACE_ROOT:-/srv/surfer/workspaces}:/srv/surfer/workspaces
       - ${SURFER_HOST_LOGS_DIR:-/srv/surfer/logs}:/srv/surfer/logs

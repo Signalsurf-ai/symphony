@@ -145,8 +145,8 @@ webhook paths, keep the operator API loopback-only, and treat Linear as the dura
 SQLite ledger is local operational state for run claims, events, links, pending writes, and lookup.
 
 1. Clone this repository on the VPS and work from `symphony/elixir`.
-2. Point DNS and TLS at the VPS. Proxy HTTPS traffic to container port `4000` for
-   `/webhooks/linear/agent`, `/webhooks/discord/interactions`, and, only if you run a gateway
+2. Point DNS and TLS at the VPS. Proxy HTTPS traffic to the loopback-bound container port `4000`
+   for `/webhooks/linear/agent`, `/webhooks/discord/interactions`, and, only if you run a gateway
    relay, `/webhooks/discord/message`.
 3. Keep `/api/v1/surfer/*` off the public internet. Access it through SSH port forwarding, for
    example `ssh -L 4000:127.0.0.1:4000 surfer@<vps>`.
@@ -163,7 +163,9 @@ SQLite ledger is local operational state for run claims, events, links, pending 
    `SURFER_HOST_LOGS_DIR`, `SURFER_HOST_STATE_DIR`, and `SURFER_HOST_CODEX_HOME`. Inside the
    container they remain `/srv/surfer/workspaces`, `/srv/surfer/logs`, `/srv/surfer/state`, and
    `/home/surfer/.codex`.
-6. Build and check the deployment shape:
+6. Build and check the deployment shape. By default Compose binds the service to
+   `127.0.0.1:4000`; keep that default unless a firewall/VPN/reverse-proxy layer provides the same
+   operator API isolation.
 
    ```bash
    docker compose -f docker-compose.surfer.yml config
@@ -273,6 +275,7 @@ Optional rotation variables:
 
 Optional host-only Docker variable:
 
+- `SURFER_HOST_BIND` as the host interface for port `4000`, defaulting to `127.0.0.1`
 - `SURFER_HOST_CODEX_HOME` as the host path mounted to `/home/surfer/.codex`
 - `SURFER_HOST_WORKSPACE_ROOT`, `SURFER_HOST_LOGS_DIR`, and `SURFER_HOST_STATE_DIR` as the host
   paths mounted to the container runtime paths
@@ -306,7 +309,7 @@ Start Surfer:
 docker compose -f docker-compose.surfer.yml up -d --build
 ```
 
-The compose file exposes port `4000` and persists:
+The compose file exposes port `4000` on `127.0.0.1` by default and persists:
 
 - `/srv/surfer/workspaces`
 - `/srv/surfer/logs`
