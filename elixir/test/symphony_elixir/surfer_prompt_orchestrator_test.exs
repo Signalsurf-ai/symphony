@@ -73,6 +73,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "action" => "created",
                "organizationId" => "org-1",
                "agentSession" => %{
@@ -250,6 +251,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-claim-1",
                  "issue" => %{
@@ -321,6 +323,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request_one} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "action" => "created",
                "agentSession" => %{
                  "id" => "session-claim-1",
@@ -335,6 +338,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request_two} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "action" => "created",
                "agentSession" => %{
                  "id" => "session-claim-2",
@@ -409,6 +413,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, existing_request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "action" => "created",
                "agentSession" => %{
                  "id" => "session-ledger-claim-1",
@@ -423,6 +428,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, incoming_request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "action" => "created",
                "agentSession" => %{
                  "id" => "session-ledger-claim-2",
@@ -721,6 +727,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-1",
                  "issue" => %{
@@ -762,6 +769,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-invalid-config",
                  "issue" => %{
@@ -838,6 +846,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-1",
                  "issue" => %{
@@ -912,6 +921,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-run-budget-cap-1",
                  "issue" => %{
@@ -997,6 +1007,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-daily-budget-cap-1",
                  "issue" => %{
@@ -1084,6 +1095,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-pause-cancel-1",
                  "issue" => %{
@@ -1187,6 +1199,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-1",
                  "issue" => %{
@@ -1392,6 +1405,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
   defp routed_linear_request!(issue_id, identifier, team_id, repositories) do
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-#{issue_id}",
                  "issue" => %{

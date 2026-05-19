@@ -1090,6 +1090,7 @@ defmodule SymphonyElixir.SurferOperationsTest do
   defp claimed_linear_request!(db_path, session_id) do
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "action" => "created",
                "agentSession" => %{
                  "id" => session_id,

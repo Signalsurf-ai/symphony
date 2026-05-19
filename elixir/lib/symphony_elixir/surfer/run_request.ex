@@ -229,7 +229,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
 
   defp sanitize_prompt_context(_value), do: nil
 
-  defp validate_linear_event_type(nil), do: :ok
+  defp validate_linear_event_type(nil), do: {:error, :missing_linear_event_type}
   defp validate_linear_event_type("AgentSessionEvent"), do: :ok
   defp validate_linear_event_type(type), do: {:error, {:unsupported_linear_event_type, type}}
 

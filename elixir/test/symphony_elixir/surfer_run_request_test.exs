@@ -6,6 +6,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
 
   test "normalizes Linear AgentSessionEvent payloads into durable coding tasks" do
     payload = %{
+      "type" => "AgentSessionEvent",
       "action" => "created",
       "organizationId" => "org-1",
       "webhookId" => "webhook-1",
@@ -142,6 +143,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
 
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-1",
                  "promptContext" => prompt_context,
@@ -190,6 +192,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
 
   test "uses natural idempotency keys instead of webhook delivery metadata" do
     created_payload = %{
+      "type" => "AgentSessionEvent",
       "action" => "created",
       "webhookId" => "delivery-1",
       "agentSession" => %{
@@ -217,6 +220,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
 
   test "rejects unsupported Linear AgentSessionEvent actions" do
     payload = %{
+      "type" => "AgentSessionEvent",
       "action" => "archived",
       "webhookId" => "delivery-unsupported",
       "agentSession" => %{
@@ -241,6 +245,20 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     }
 
     assert {:error, {:unsupported_linear_event_type, "Issue"}} =
+             RunRequest.from_linear_agent_session_event(payload)
+  end
+
+  test "rejects Linear payloads without an AgentSessionEvent type" do
+    payload = %{
+      "action" => "created",
+      "webhookId" => "delivery-missing-type",
+      "agentSession" => %{
+        "id" => "session-missing-type",
+        "issue" => %{"id" => "issue-1", "identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}}
+      }
+    }
+
+    assert {:error, :missing_linear_event_type} =
              RunRequest.from_linear_agent_session_event(payload)
   end
 
@@ -382,6 +400,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
   test "routes Linear requests by configured team id and exposes PRD routing metadata" do
     assert {:ok, request} =
              RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
                "agentSession" => %{
                  "id" => "session-1",
                  "issue" => %{

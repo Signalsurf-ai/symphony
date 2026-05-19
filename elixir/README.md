@@ -87,7 +87,7 @@ notification webhook contract instead of re-enabling project polling as the defa
 - Linear `AgentSessionEvent` HTTP ingress at `/webhooks/linear/agent` by default, with
   `surfer.platforms.linear.webhook_path` enforced when configured.
 - Linear raw-body HMAC verification using `LINEAR_WEBHOOK_SECRET`.
-- Linear webhook payload type handling accepts `AgentSessionEvent`; explicit non-agent event
+- Linear webhook payload type handling requires `AgentSessionEvent`; missing or non-agent event
   types return `400` without dispatch.
 - Linear `AgentSessionEvent` action handling accepts `created` and `prompted`; unsupported
   actions return `400` without dispatch.

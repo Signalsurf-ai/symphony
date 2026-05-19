@@ -102,6 +102,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
         {:error, {:unsupported_linear_event_type, type}} ->
           error_response(conn, 400, "unsupported_linear_event_type", "Unsupported Linear event type: #{safe_inspect(type)}")
 
+        {:error, :missing_linear_event_type} ->
+          error_response(conn, 400, "missing_linear_event_type", "Linear event type is required")
+
         {:error, :missing_linear_agent_session_id} ->
           error_response(conn, 400, "missing_linear_agent_session_id", "Linear agent session id is required")
 
