@@ -270,6 +270,7 @@ defmodule SymphonyElixir.Surfer.RunLedger do
               FROM run_events terminal
               WHERE terminal.run_id = pending.run_id
                 AND terminal.external_id = pending.external_id
+                AND terminal.idempotency_hash IS pending.idempotency_hash
                 AND terminal.event_type IN ('pending_write_drained', 'pending_write_failed')
             )
           ORDER BY pending.id ASC;

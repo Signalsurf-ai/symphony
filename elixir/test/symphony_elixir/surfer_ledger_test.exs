@@ -281,6 +281,47 @@ defmodule SymphonyElixir.SurferLedgerTest do
     assert Enum.any?(events, &(&1["event_type"] == "pending_write_drained" and &1["external_id"] == "session-1:response"))
   end
 
+  test "pending write terminal results match the same idempotency hash", %{db_path: db_path} do
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-1",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, RunRequest.idempotency_key(request), request, platform: :discord)
+
+    assert :ok =
+             RunLedger.record_pending_write(db_path, request.run_id, %{
+               platform: "discord",
+               external_id: "channel-1:completion:#{request.run_id}",
+               idempotency_hash: "hash-original",
+               payload: %{type: "channel_message", body: "First completion"}
+             })
+
+    assert {:ok, [original]} = RunLedger.list_pending_writes(db_path)
+
+    assert :ok =
+             RunLedger.record_pending_write_result(db_path, original, :failed,
+               reason: :discord_down,
+               actor: "operator"
+             )
+
+    assert :ok =
+             RunLedger.record_pending_write(db_path, request.run_id, %{
+               platform: "discord",
+               external_id: "channel-1:completion:#{request.run_id}",
+               idempotency_hash: "hash-revised",
+               payload: %{type: "channel_message", body: "Revised completion"}
+             })
+
+    assert {:ok, [pending]} = RunLedger.list_pending_writes(db_path)
+    assert pending["external_id"] == "channel-1:completion:#{request.run_id}"
+    assert pending["idempotency_hash"] == "hash-revised"
+  end
+
   test "pending write listing emits stale outbox telemetry", %{db_path: db_path} do
     parent = self()
     handler_id = {__MODULE__, self(), :pending_write_backlog_metrics}
