@@ -493,6 +493,8 @@ codex:
 - Surfer runtime pause and unpause are available as loopback-only `POST /api/v1/surfer/pause` and
   `POST /api/v1/surfer/unpause`. Runtime unpause clears only the operator override; if
   `surfer.paused: true` or `SURFER_PAUSED=true` is configured, ingress remains paused.
+  `SURFER_PAUSED=false` does not unpause a workflow configured with `surfer.paused: true`; remove
+  the configured pause to resume ingress.
   `SURFER_PAUSE_MODE=cancel` cancels active direct-dispatch runs when the operator pause endpoint is
   used; the default `drain` mode lets active runs continue while blocking new dispatch. Unsupported
   `SURFER_PAUSE_MODE` values fail config validation before the service starts.

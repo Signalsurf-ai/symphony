@@ -797,7 +797,7 @@ defmodule SymphonyElixir.Config.Schema do
 
     paused =
       case System.get_env("SURFER_PAUSED") do
-        value when is_binary(value) -> String.downcase(value) in ["1", "true", "yes", "on"]
+        value when is_binary(value) -> surfer.paused or truthy_env?(value)
         _ -> surfer.paused
       end
 
@@ -871,6 +871,11 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp normalize_external_base_url(_url), do: nil
+
+  defp truthy_env?(value) when is_binary(value) do
+    normalized = value |> String.trim() |> String.downcase()
+    normalized in ["1", "true", "yes", "on"]
+  end
 
   defp normalize_keys(value) when is_map(value) do
     Enum.reduce(value, %{}, fn {key, raw_value}, normalized ->

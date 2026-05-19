@@ -400,6 +400,29 @@ defmodule SymphonyElixir.SurferConfigTest do
     assert {:error, {:invalid_surfer_pause_mode, "panic"}} = Config.validate!()
   end
 
+  test "SURFER_PAUSED env cannot unpause configured Surfer pause" do
+    previous_paused = System.get_env("SURFER_PAUSED")
+    on_exit(fn -> restore_env("SURFER_PAUSED", previous_paused) end)
+    System.put_env("SURFER_PAUSED", "false")
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        paused: true
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert Config.settings!().surfer.paused == true
+  end
+
   test "fails closed when enabled Surfer platform secrets are missing" do
     File.write!(
       Workflow.workflow_file_path(),
