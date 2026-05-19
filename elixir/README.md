@@ -28,7 +28,7 @@ skills can make raw Linear GraphQL calls.
 If a claimed issue moves to a terminal state (`Done`, `Closed`, `Cancelled`, or `Duplicate`),
 Symphony stops the active agent for that issue and cleans up matching workspaces.
 
-## How to use it
+## How to use legacy Symphony polling
 
 1. Make sure your codebase is set up to work well with agents: see
    [Harness engineering](https://openai.com/index/harness-engineering/).
@@ -44,7 +44,8 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
    - When creating a workflow based on this repo, note that it depends on non-standard Linear
      issue statuses: "Rework", "Human Review", and "Merging". You can customize them in
      Team Settings → Workflow in Linear.
-6. Follow the instructions below to install the required runtime dependencies and start the service.
+6. Follow the instructions below to install the required runtime dependencies and start the legacy
+   poller service.
 
 ## Prerequisites
 
@@ -55,7 +56,7 @@ mise install
 mise exec -- elixir --version
 ```
 
-## Run
+## Run legacy Symphony polling
 
 ```bash
 git clone https://github.com/openai/symphony
@@ -66,6 +67,10 @@ mise exec -- mix setup
 mise exec -- mix build
 mise exec -- ./bin/symphony ./WORKFLOW.md
 ```
+
+Do not use this `WORKFLOW.md` command for Surfer v0.1 hosting. Surfer uses
+[`SURFER_WORKFLOW.example.md`](SURFER_WORKFLOW.example.md), Docker Compose mounts that file as
+`/app/WORKFLOW.md`, and the Surfer workflow keeps `polling.enabled: false`.
 
 ## Surfer v0.1 VPS Deployment
 
@@ -545,7 +550,8 @@ The observability UI now runs on a minimal Phoenix stack:
 
 - `lib/`: application code and Mix tasks
 - `test/`: ExUnit coverage for runtime behavior
-- `WORKFLOW.md`: in-repo workflow contract used by local runs
+- `WORKFLOW.md`: in-repo legacy Symphony polling workflow for local runs
+- `SURFER_WORKFLOW.example.md`: Surfer v0.1 webhook-first workflow with legacy polling disabled
 - `../.codex/`: repository-local Codex skills and setup helpers
 
 ## Testing
