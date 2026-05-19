@@ -18,6 +18,17 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     "failed" => MapSet.new([]),
     "cancelled" => MapSet.new([])
   }
+  @run_log_correlation_keys ~w(
+    source_platform
+    request_mode
+    repository
+    canonical_linear_issue_id
+    linear_agent_session_id
+    discord_channel_id
+    discord_message_id
+    github_repo
+    github_pr_number
+  )
 
   @spec initialize(Path.t()) :: :ok | {:error, term()}
   def initialize(db_path) when is_binary(db_path) do
@@ -153,7 +164,7 @@ defmodule SymphonyElixir.Surfer.RunLedger do
         record_event_conn(conn, run_id, event)
       end)
 
-    maybe_append_run_log(result, run_id, event)
+    maybe_append_run_log(result, db_path, run_id, event)
     result
   end
 
@@ -434,14 +445,41 @@ defmodule SymphonyElixir.Surfer.RunLedger do
 
   defp pending_write_age_ms(_pending_write, _now), do: []
 
-  defp maybe_append_run_log(:ok, run_id, event) do
+  defp maybe_append_run_log(:ok, db_path, run_id, event) do
     case configured_logs_dir() do
-      {:ok, logs_dir} -> RunLog.append(logs_dir, run_id, event)
+      {:ok, logs_dir} -> RunLog.append(logs_dir, run_id, run_log_event(db_path, run_id, event))
       :disabled -> :ok
     end
   end
 
-  defp maybe_append_run_log(_result, _run_id, _event), do: :ok
+  defp maybe_append_run_log(_result, _db_path, _run_id, _event), do: :ok
+
+  defp run_log_event(db_path, run_id, event) do
+    case run_log_correlation(db_path, run_id) do
+      {:ok, correlation} -> Map.merge(event, correlation)
+      {:error, _reason} -> event
+    end
+  end
+
+  defp run_log_correlation(db_path, run_id) do
+    case get_run(db_path, run_id) do
+      {:ok, run} ->
+        correlation =
+          run
+          |> Map.take(@run_log_correlation_keys)
+          |> Enum.reject(fn {_key, value} -> empty_correlation_value?(value) end)
+          |> Map.new()
+
+        {:ok, correlation}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp empty_correlation_value?(nil), do: true
+  defp empty_correlation_value?(value) when is_binary(value), do: String.trim(value) == ""
+  defp empty_correlation_value?(_value), do: false
 
   defp configured_logs_dir do
     case Config.settings() do

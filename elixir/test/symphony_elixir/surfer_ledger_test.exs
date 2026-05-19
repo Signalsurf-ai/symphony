@@ -98,6 +98,8 @@ defmodule SymphonyElixir.SurferLedgerTest do
                "content" => "surfer question"
              })
 
+    assert :ok = RunLedger.upsert_run(db_path, request, status: "queued")
+
     assert :ok =
              RunLedger.record_event(db_path, request.run_id, %{
                event_type: "platform_write",
@@ -120,6 +122,10 @@ defmodule SymphonyElixir.SurferLedgerTest do
 
     assert {:ok, decoded} = Jason.decode(line)
     assert decoded["run_id"] == request.run_id
+    assert decoded["source_platform"] == "discord"
+    assert decoded["request_mode"] == "code_question"
+    assert decoded["discord_channel_id"] == "channel-1"
+    assert decoded["discord_message_id"] == "message-structured-log-1"
     assert decoded["event_type"] == "platform_write"
     assert decoded["platform"] == "discord"
     assert decoded["external_id"] == "message-structured-log-1"
