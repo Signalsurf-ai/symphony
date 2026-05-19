@@ -30,6 +30,8 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   @default_discord_message_path "/webhooks/discord/message"
   @default_discord_interactions_path "/webhooks/discord/interactions"
   @task_ledger_path_key {__MODULE__, :surfer_ledger_path}
+  @discord_interaction_response_attempts 2
+  @discord_interaction_response_retry_backoff_ms 25
 
   @spec platform_webhook(Conn.t(), map()) :: Conn.t()
   def platform_webhook(conn, params) do
@@ -995,6 +997,38 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
   defp post_discord_interaction_response(%{"application_id" => application_id, "token" => token} = raw_message, body, run_id)
        when is_binary(application_id) and is_binary(token) and is_binary(body) do
+    case post_discord_interaction_response_with_retry(
+           application_id,
+           token,
+           body,
+           @discord_interaction_response_attempts
+         ) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        handle_discord_interaction_response_failure(raw_message, body, reason, run_id)
+    end
+  end
+
+  defp post_discord_interaction_response(_raw_message, _body, _run_id), do: :ok
+
+  defp post_discord_interaction_response_with_retry(application_id, token, body, attempts_left)
+       when attempts_left > 0 do
+    case attempt_discord_interaction_response(application_id, token, body) do
+      :ok ->
+        :ok
+
+      {:error, _reason} when attempts_left > 1 ->
+        maybe_sleep_discord_interaction_retry()
+        post_discord_interaction_response_with_retry(application_id, token, body, attempts_left - 1)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp attempt_discord_interaction_response(application_id, token, body) do
     result =
       case Application.get_env(:symphony_elixir, :surfer_discord_interaction_response_fun) do
         fun when is_function(fun, 3) ->
@@ -1005,23 +1039,22 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
       end
 
     case result do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        handle_discord_interaction_response_failure(raw_message, body, reason, run_id)
-
-      other ->
-        handle_discord_interaction_response_failure(
-          raw_message,
-          body,
-          {:unexpected_discord_response_result, other},
-          run_id
-        )
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_discord_response_result, other}}
     end
   end
 
-  defp post_discord_interaction_response(_raw_message, _body, _run_id), do: :ok
+  defp maybe_sleep_discord_interaction_retry do
+    case Application.get_env(
+           :symphony_elixir,
+           :surfer_discord_interaction_retry_backoff_ms,
+           @discord_interaction_response_retry_backoff_ms
+         ) do
+      ms when is_integer(ms) and ms > 0 -> Process.sleep(ms)
+      _ -> :ok
+    end
+  end
 
   defp handle_discord_interaction_response_failure(raw_message, body, reason, run_id) when is_map(raw_message) do
     application_id = Map.get(raw_message, "application_id")
