@@ -356,28 +356,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
          ) do
       {:ok, request} ->
         raw_message = put_discord_interaction_retry_deadline(params, received_at_ms)
-
-        with {:ok, response} <- claim_run(request, :discord) do
-          case maybe_dispatch_discord_interaction(response, request, raw_message, discord) do
-            :deferred ->
-              json(conn, %{type: 5})
-
-            {:immediate_response, message} ->
-              json(conn, %{type: 4, data: %{content: message}})
-
-            {:error, :rate_limited} ->
-              json(conn, %{type: 4, data: %{content: "Surfer rate limit exceeded. Try again later."}})
-
-            {:error, reason} ->
-              error_response(conn, 500, "surfer_dispatch_failed", safe_inspect(reason))
-          end
-        else
-          {:error, :rate_limited} ->
-            json(conn, %{type: 4, data: %{content: "Surfer rate limit exceeded. Try again later."}})
-
-          {:error, {:ledger_claim_failed, reason}} ->
-            error_response(conn, 503, "ledger_claim_failed", "Surfer run ledger claim failed: #{safe_inspect(reason)}")
-        end
+        claim_and_dispatch_discord_interaction(conn, request, raw_message, discord)
 
       {:error, {:unauthorized_guild, _guild_id}} ->
         error_response(conn, 403, "unauthorized_guild", "Discord guild is not allowed")
@@ -399,6 +378,32 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
       {:error, reason} ->
         error_response(conn, 400, "unsupported_discord_interaction", safe_inspect(reason))
+    end
+  end
+
+  defp claim_and_dispatch_discord_interaction(conn, request, raw_message, discord) do
+    case claim_run(request, :discord) do
+      {:ok, response} ->
+        discord_interaction_dispatch_response(conn, response, request, raw_message, discord)
+
+      {:error, {:ledger_claim_failed, reason}} ->
+        error_response(conn, 503, "ledger_claim_failed", "Surfer run ledger claim failed: #{safe_inspect(reason)}")
+    end
+  end
+
+  defp discord_interaction_dispatch_response(conn, response, request, raw_message, discord) do
+    case maybe_dispatch_discord_interaction(response, request, raw_message, discord) do
+      :deferred ->
+        json(conn, %{type: 5})
+
+      {:immediate_response, message} ->
+        json(conn, %{type: 4, data: %{content: message}})
+
+      {:error, :rate_limited} ->
+        json(conn, %{type: 4, data: %{content: "Surfer rate limit exceeded. Try again later."}})
+
+      {:error, reason} ->
+        error_response(conn, 500, "surfer_dispatch_failed", safe_inspect(reason))
     end
   end
 
