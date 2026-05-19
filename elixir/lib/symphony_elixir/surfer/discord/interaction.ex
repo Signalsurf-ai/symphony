@@ -73,6 +73,10 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
     if present?(run_id), do: :ok, else: {:error, :missing_discord_lifecycle_run_id}
   end
 
+  defp validate_command(%{name: name, prompt: prompt}) when name in ["ask", "issue", "run"] do
+    if present?(prompt), do: :ok, else: {:error, :missing_discord_prompt}
+  end
+
   defp validate_command(%{unsupported?: true, name: name}), do: {:error, {:unsupported_discord_subcommand, name}}
 
   defp validate_command(_command), do: :ok

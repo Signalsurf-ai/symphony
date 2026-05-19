@@ -181,6 +181,22 @@ defmodule SymphonyElixir.SurferPlatformsTest do
     assert {:error, {:unsupported_discord_subcommand, "launch"}} = Discord.Interaction.to_run_request(interaction)
   end
 
+  test "Discord prompt subcommands require a prompt" do
+    for subcommand <- ["ask", "issue", "run"] do
+      interaction = %{
+        "id" => "interaction-missing-prompt-#{subcommand}",
+        "application_id" => "app-1",
+        "type" => 2,
+        "guild_id" => "guild-1",
+        "channel_id" => "channel-1",
+        "member" => %{"user" => %{"id" => "user-1"}},
+        "data" => %{"name" => "surfer", "options" => [%{"name" => subcommand, "type" => 1, "options" => []}]}
+      }
+
+      assert {:error, :missing_discord_prompt} = Discord.Interaction.to_run_request(interaction)
+    end
+  end
+
   test "Discord command registration upserts Surfer command in the configured guild" do
     parent = self()
 

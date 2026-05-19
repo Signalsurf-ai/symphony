@@ -3195,6 +3195,68 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert {:error, :not_found} = RunLedger.lookup_idempotency_key(db_path, "discord_interaction:interaction-unsupported-subcommand:code_question")
   end
 
+  test "Discord prompt interaction without prompt fails before claim or dispatch" do
+    {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
+
+    on_exit(fn -> restore_env("DISCORD_PUBLIC_KEY", previous_public_key) end)
+    System.put_env("DISCORD_PUBLIC_KEY", Base.encode16(public_key, case: :lower))
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-missing-prompt-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            public_key: $DISCORD_PUBLIC_KEY
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    assert :ok = RunLedger.initialize(db_path)
+
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        id: "interaction-missing-prompt",
+        application_id: "app-1",
+        token: "missing-prompt-token",
+        type: 2,
+        guild_id: "guild-1",
+        channel_id: "channel-1",
+        member: %{user: %{id: "user-1"}},
+        data: %{name: "surfer", options: [%{name: "run", type: 1, options: []}]}
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_signature_headers(body, private_key)
+      |> post("/webhooks/discord/interactions", body)
+
+    assert json_response(conn, 400)["error"]["code"] == "missing_discord_prompt"
+    refute_receive {:unexpected_dispatch, _run_id}, 100
+    assert {:error, :not_found} = RunLedger.lookup_idempotency_key(db_path, "discord_interaction:interaction-missing-prompt:durable_task")
+  end
+
   test "Discord interaction webhook is closed when Discord ingress is disabled" do
     File.write!(
       Workflow.workflow_file_path(),
