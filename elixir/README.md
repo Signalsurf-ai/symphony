@@ -81,6 +81,8 @@ and is disabled in the Surfer workflow example.
   types return `400` without dispatch.
 - Linear `AgentSessionEvent` action handling accepts `created` and `prompted`; unsupported
   actions return `400` without dispatch.
+- Linear idempotency keys require real natural-key fields: agent session ID, and either a
+  comment/issue ID for `created` or an agent activity ID for `prompted`.
 - Surfer v0.1 deployment defaults disable the legacy Symphony Linear project poller with
   `polling.enabled: false`; direct webhook dispatch remains available.
 - Enabled Linear, Discord, and GitHub config fails closed at application startup when required

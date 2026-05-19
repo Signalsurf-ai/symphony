@@ -157,6 +157,43 @@ defmodule SymphonyElixir.SurferRunRequestTest do
              RunRequest.from_linear_agent_session_event(payload)
   end
 
+  test "rejects Linear payloads missing required natural-key components" do
+    missing_session_id = %{
+      "type" => "AgentSessionEvent",
+      "action" => "created",
+      "agentSession" => %{
+        "issue" => %{"id" => "issue-1", "identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}}
+      }
+    }
+
+    assert {:error, :missing_linear_agent_session_id} =
+             RunRequest.from_linear_agent_session_event(missing_session_id)
+
+    prompted_without_activity = %{
+      "type" => "AgentSessionEvent",
+      "action" => "prompted",
+      "agentSession" => %{
+        "id" => "session-1",
+        "issue" => %{"id" => "issue-1", "identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}}
+      }
+    }
+
+    assert {:error, :missing_linear_agent_activity_id} =
+             RunRequest.from_linear_agent_session_event(prompted_without_activity)
+
+    created_without_subject = %{
+      "type" => "AgentSessionEvent",
+      "action" => "created",
+      "agentSession" => %{
+        "id" => "session-1",
+        "issue" => %{"identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}}
+      }
+    }
+
+    assert {:error, :missing_linear_issue_or_comment_id} =
+             RunRequest.from_linear_agent_session_event(created_without_subject)
+  end
+
   test "deduplicates Discord events by interaction or message without retaining bearer tokens" do
     interaction = %{
       "id" => "interaction-1",
