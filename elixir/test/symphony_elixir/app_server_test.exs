@@ -1154,13 +1154,15 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-92"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-92"}}}'
+            printf '%s\\n' '{"method":"thread/configured","params":{"side":"before-thread"}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-92"}}}'
             ;;
           4)
-            printf '%s\\n' 'warning: this is stderr noise' >&2
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-92"}}}'
+            printf '%s\\n' '{"method":"item/started","params":{"message":"debug notification"}}'
+            printf '%s\\n' 'warning: this is stderr noise Authorization: Bearer stderr-secret' >&2
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
@@ -1192,14 +1194,20 @@ defmodule SymphonyElixir.AppServerTest do
       on_message = fn message -> send(test_pid, {:app_server_message, message}) end
 
       log =
-        capture_log(fn ->
+        capture_log([level: :debug], fn ->
           assert {:ok, _result} =
-                   AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message)
+                   AppServer.run(workspace, "Capture stderr log", issue,
+                     on_message: on_message,
+                     log_context: " run_id=surf_run_stderr"
+                   )
         end)
 
       assert_received {:app_server_message, %{event: :turn_completed}}
       refute_received {:app_server_message, %{event: :malformed}}
-      assert log =~ "Codex turn stream output: warning: this is stderr noise"
+      assert log =~ "Codex turn stream run_id=surf_run_stderr output: warning: this is stderr noise Authorization: Bearer [REDACTED]"
+      assert log =~ "Ignoring message while waiting for response run_id=surf_run_stderr:"
+      assert log =~ "Codex notification run_id=surf_run_stderr: \"item/started\""
+      refute log =~ "stderr-secret"
     after
       File.rm_rf(test_root)
     end

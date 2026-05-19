@@ -1,0 +1,5 @@
+# Local planning docs are intentionally not tracked.
+/docs/
+
+# Local Surfer deployment secrets.
+/elixir/.env.surfer

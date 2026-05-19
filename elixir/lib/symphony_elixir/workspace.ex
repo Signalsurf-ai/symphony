@@ -16,7 +16,7 @@ defmodule SymphonyElixir.Workspace do
     issue_context = issue_context(issue_or_identifier)
 
     try do
-      safe_id = safe_identifier(issue_context.issue_identifier)
+      safe_id = safe_identifier(issue_context.workspace_identifier || issue_context.issue_identifier)
 
       with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
            :ok <- validate_workspace_path(workspace, worker_host),
@@ -82,6 +82,81 @@ defmodule SymphonyElixir.Workspace do
     File.rm_rf!(workspace)
     File.mkdir_p!(workspace)
     {:ok, workspace, true}
+  end
+
+  @spec create_run_lock(Path.t(), map() | String.t() | nil) :: :ok | {:error, term()}
+  def create_run_lock(workspace, issue_or_identifier), do: create_run_lock(workspace, issue_or_identifier, nil)
+
+  @spec create_run_lock(Path.t(), map() | String.t() | nil, worker_host()) :: :ok | {:error, term()}
+  def create_run_lock(workspace, issue_or_identifier, nil) when is_binary(workspace) do
+    issue_context = issue_context(issue_or_identifier)
+
+    with :ok <- validate_workspace_path(workspace, nil) do
+      lock_path = run_lock_path(workspace)
+      write_local_run_lock(lock_path, run_lock_payload(issue_context))
+    end
+  end
+
+  def create_run_lock(workspace, issue_or_identifier, worker_host)
+      when is_binary(workspace) and is_binary(worker_host) do
+    issue_context = issue_context(issue_or_identifier)
+
+    with :ok <- validate_workspace_path(workspace, worker_host) do
+      payload = run_lock_payload(issue_context)
+
+      script =
+        [
+          "set -eu",
+          remote_shell_assign("workspace", workspace),
+          "lock=\"$workspace/.surfer-run.lock\"",
+          "if ( set -C; printf '%s' #{shell_escape(payload)} > \"$lock\" ) 2>/dev/null; then",
+          "  exit 0",
+          "fi",
+          "exit 73"
+        ]
+        |> Enum.join("\n")
+
+      case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+        {:ok, {_output, 0}} -> :ok
+        {:ok, {output, 73}} -> {:error, {:workspace_run_locked, run_lock_path(workspace), worker_host, output}}
+        {:ok, {output, status}} -> {:error, {:workspace_run_lock_failed, worker_host, status, output}}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @spec remove_run_lock(Path.t()) :: :ok
+  def remove_run_lock(workspace), do: remove_run_lock(workspace, nil, nil)
+
+  @spec remove_run_lock(Path.t(), worker_host()) :: :ok
+  def remove_run_lock(workspace, worker_host), do: remove_run_lock(workspace, nil, worker_host)
+
+  @spec remove_run_lock(Path.t(), map() | String.t() | nil, worker_host()) :: :ok
+  def remove_run_lock(workspace, issue_or_identifier, nil) when is_binary(workspace) do
+    issue_context = issue_context(issue_or_identifier)
+
+    case File.rm(run_lock_path(workspace)) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> Logger.warning("Failed to remove run lock #{issue_log_context(issue_context)} workspace=#{workspace} reason=#{inspect(reason)}")
+    end
+  end
+
+  def remove_run_lock(workspace, issue_or_identifier, worker_host) when is_binary(workspace) and is_binary(worker_host) do
+    issue_context = issue_context(issue_or_identifier)
+
+    script =
+      [
+        remote_shell_assign("workspace", workspace),
+        "rm -f \"$workspace/.surfer-run.lock\""
+      ]
+      |> Enum.join("\n")
+
+    case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {_output, 0}} -> :ok
+      {:ok, {output, status}} -> Logger.warning("Failed to remove remote run lock #{issue_log_context(issue_context)} worker_host=#{worker_host} status=#{status} output=#{inspect(output)}")
+      {:error, reason} -> Logger.warning("Failed to remove remote run lock #{issue_log_context(issue_context)} worker_host=#{worker_host} reason=#{inspect(reason)}")
+    end
   end
 
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
@@ -203,8 +278,28 @@ defmodule SymphonyElixir.Workspace do
     {:ok, Path.join(Config.settings!().workspace.root, safe_id)}
   end
 
+  defp safe_identifier(segments) when is_list(segments) do
+    segments
+    |> Enum.map(&safe_identifier_segment/1)
+    |> Enum.reject(&(&1 == ""))
+    |> case do
+      [] -> "issue"
+      safe_segments -> Path.join(safe_segments)
+    end
+  end
+
   defp safe_identifier(identifier) do
-    String.replace(identifier || "issue", ~r/[^a-zA-Z0-9._-]/, "_")
+    safe_identifier_segment(identifier)
+  end
+
+  defp safe_identifier_segment(identifier) do
+    identifier
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9._-]/, "_")
+    |> case do
+      "" -> "issue"
+      safe_segment -> safe_segment
+    end
   end
 
   defp maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
@@ -453,31 +548,74 @@ defmodule SymphonyElixir.Workspace do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
+  defp run_lock_path(workspace), do: Path.join(workspace, ".surfer-run.lock")
+
+  defp write_local_run_lock(lock_path, payload) do
+    case File.open(lock_path, [:write, :exclusive], fn file -> IO.write(file, payload) end) do
+      {:ok, :ok} -> :ok
+      {:error, :eexist} -> {:error, {:workspace_run_locked, lock_path}}
+      {:error, reason} -> {:error, {:workspace_run_lock_failed, lock_path, reason}}
+    end
+  end
+
+  defp run_lock_payload(issue_context) do
+    [
+      "issue_id=#{issue_context.issue_id || ""}",
+      "issue_identifier=#{issue_context.issue_identifier || "issue"}",
+      run_lock_run_id_line(issue_context),
+      "pid=#{System.pid()}",
+      "created_at=#{DateTime.utc_now() |> DateTime.to_iso8601()}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+    |> Kernel.<>("\n")
+  end
+
+  defp run_lock_run_id_line(%{run_id: run_id}) when is_binary(run_id) and run_id != "" do
+    "run_id=#{run_id}"
+  end
+
+  defp run_lock_run_id_line(_issue_context), do: nil
+
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp issue_context(%{id: issue_id, identifier: identifier}) do
+  defp issue_context(%{} = issue) do
     %{
-      issue_id: issue_id,
-      issue_identifier: identifier || "issue"
+      issue_id: value(issue, :id),
+      issue_identifier: value(issue, :identifier) || "issue",
+      run_id: value(issue, :run_id),
+      workspace_identifier: value(issue, :workspace_identifier)
     }
   end
 
   defp issue_context(identifier) when is_binary(identifier) do
     %{
       issue_id: nil,
-      issue_identifier: identifier
+      issue_identifier: identifier,
+      run_id: nil,
+      workspace_identifier: nil
     }
   end
 
   defp issue_context(_identifier) do
     %{
       issue_id: nil,
-      issue_identifier: "issue"
+      issue_identifier: "issue",
+      run_id: nil,
+      workspace_identifier: nil
     }
   end
 
-  defp issue_log_context(%{issue_id: issue_id, issue_identifier: issue_identifier}) do
-    "issue_id=#{issue_id || "n/a"} issue_identifier=#{issue_identifier || "issue"}"
+  defp value(map, key), do: Map.get(map, key) || Map.get(map, to_string(key))
+
+  defp issue_log_context(%{issue_id: issue_id, issue_identifier: issue_identifier} = issue_context) do
+    run_context =
+      case Map.get(issue_context, :run_id) do
+        run_id when is_binary(run_id) and run_id != "" -> " run_id=#{run_id}"
+        _ -> ""
+      end
+
+    "issue_id=#{issue_id || "n/a"} issue_identifier=#{issue_identifier || "issue"}#{run_context}"
   end
 end

@@ -9,6 +9,11 @@ defmodule SymphonyElixir.Orchestrator do
 
   alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.Surfer.Discord.Notifier, as: DiscordNotifier
+  alias SymphonyElixir.Surfer.GitHub.CompanyBrain
+  alias SymphonyElixir.Surfer.Linear.Session, as: LinearSession
+  alias SymphonyElixir.Surfer.{Metrics, RunLedger, WorkspaceLifecycle}
+  alias SymphonyElixir.Surfer.RunRequest
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -48,6 +53,29 @@ defmodule SymphonyElixir.Orchestrator do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
+  @spec dispatch_run(GenServer.server(), RunRequest.t(), keyword()) :: :ok | {:error, term()}
+  def dispatch_run(server \\ __MODULE__, %RunRequest{} = request, opts \\ []) do
+    GenServer.call(server, {:dispatch_run, request, opts})
+  end
+
+  @spec cancel_running_runs(GenServer.server(), keyword()) :: {:ok, map()} | {:error, term()} | :unavailable
+  def cancel_running_runs(server \\ __MODULE__, opts \\ []) do
+    if Process.whereis(server) do
+      GenServer.call(server, {:cancel_running_runs, opts})
+    else
+      :unavailable
+    end
+  end
+
+  @spec cancel_run(GenServer.server(), String.t(), keyword()) :: {:ok, map()} | {:error, term()} | :unavailable
+  def cancel_run(server \\ __MODULE__, run_id, opts \\ []) when is_binary(run_id) do
+    if Process.whereis(server) do
+      GenServer.call(server, {:cancel_run, run_id, opts})
+    else
+      :unavailable
+    end
+  end
+
   @impl true
   def init(_opts) do
     now_ms = System.monotonic_time(:millisecond)
@@ -64,7 +92,7 @@ defmodule SymphonyElixir.Orchestrator do
       codex_rate_limits: nil
     }
 
-    run_terminal_workspace_cleanup()
+    run_terminal_workspace_cleanup(config)
     state = schedule_tick(state, 0)
 
     {:ok, state}
@@ -125,40 +153,19 @@ defmodule SymphonyElixir.Orchestrator do
         {:noreply, state}
 
       issue_id ->
-        {running_entry, state} = pop_running_entry(state, issue_id)
-        state = record_session_completion_totals(state, running_entry)
-        session_id = running_entry_session_id(running_entry)
+        running_entry = Map.get(running, issue_id)
+        state = complete_running_entry(state, issue_id, running_entry, reason)
+        {:noreply, state}
+    end
+  end
 
-        state =
-          case reason do
-            :normal ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+  def handle_info({:direct_dispatch_completed, issue_id, pid}, state) do
+    case Map.get(state.running, issue_id) do
+      %{pid: ^pid} = running_entry ->
+        state = complete_running_entry(state, issue_id, running_entry, :normal, flush_monitor?: true)
+        {:noreply, state}
 
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                delay_type: :continuation,
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            _ ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-              next_attempt = next_retry_attempt_from_running(running_entry)
-
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                error: "agent exited: #{inspect(reason)}",
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-          end
-
-        Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
-
-        notify_dashboard()
+      _ ->
         {:noreply, state}
     end
   end
@@ -274,7 +281,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp reconcile_running_issues(%State{} = state) do
     state = reconcile_stalled_running_issues(state)
-    running_ids = Map.keys(state.running)
+    running_ids = tracker_reconciled_running_ids(state.running)
 
     if running_ids == [] do
       state
@@ -296,6 +303,21 @@ defmodule SymphonyElixir.Orchestrator do
       end
     end
   end
+
+  defp tracker_reconciled_running_ids(running) when is_map(running) do
+    running
+    |> Enum.flat_map(fn {issue_id, running_entry} ->
+      if tracker_reconciled_running_entry?(issue_id, running_entry), do: [issue_id], else: []
+    end)
+  end
+
+  defp tracker_reconciled_running_ids(_running), do: []
+
+  defp tracker_reconciled_running_entry?(_issue_id, running_entry) when is_map(running_entry) do
+    Map.get(running_entry, :dispatch_kind, :poller) == :poller
+  end
+
+  defp tracker_reconciled_running_entry?(_issue_id, _running_entry), do: false
 
   @doc false
   @spec reconcile_issue_states_for_test([Issue.t()], term()) :: term()
@@ -515,6 +537,189 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp terminate_task(_pid), do: :ok
+
+  defp complete_running_entry(state, issue_id, running_entry, reason, opts \\ []) do
+    state = %{state | running: Map.delete(state.running, issue_id)}
+    state = maybe_flush_monitor(state, running_entry, opts)
+    state = record_session_completion_totals(state, running_entry)
+    session_id = running_entry_session_id(running_entry)
+    run_context = running_entry_run_context(running_entry)
+
+    state =
+      case normalize_task_exit_reason(reason) do
+        :normal ->
+          post_surfer_completion(running_entry, :normal)
+
+          Logger.info("Agent task completed for issue_id=#{issue_id}#{run_context} session_id=#{session_id}; scheduling active-state continuation check")
+
+          state
+          |> complete_issue(issue_id)
+          |> schedule_issue_retry(issue_id, 1, %{
+            identifier: running_entry.identifier,
+            delay_type: :continuation,
+            worker_host: Map.get(running_entry, :worker_host),
+            workspace_path: Map.get(running_entry, :workspace_path),
+            run_id: running_entry_run_id(running_entry)
+          })
+
+        :error ->
+          post_surfer_completion(running_entry, reason)
+
+          Logger.warning("Agent task exited for issue_id=#{issue_id}#{run_context} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+          next_attempt = next_retry_attempt_from_running(running_entry)
+
+          schedule_issue_retry(state, issue_id, next_attempt, %{
+            identifier: running_entry.identifier,
+            error: "agent exited: #{inspect(reason)}",
+            worker_host: Map.get(running_entry, :worker_host),
+            workspace_path: Map.get(running_entry, :workspace_path),
+            run_id: running_entry_run_id(running_entry)
+          })
+      end
+
+    emit_codex_run_duration(running_entry)
+    emit_runtime_gauges(state)
+    Logger.info("Agent task finished for issue_id=#{issue_id}#{run_context} session_id=#{session_id} reason=#{inspect(reason)}")
+
+    notify_dashboard()
+    state
+  end
+
+  defp maybe_flush_monitor(state, %{ref: ref}, opts) when is_reference(ref) do
+    if Keyword.get(opts, :flush_monitor?, false) do
+      Process.demonitor(ref, [:flush])
+    end
+
+    state
+  end
+
+  defp maybe_flush_monitor(state, _running_entry, _opts), do: state
+
+  defp post_surfer_completion(running_entry, reason) when is_map(running_entry) do
+    session_id = Map.get(running_entry, :session_id)
+    surfer_context = Map.get(running_entry, :surfer_context, %{})
+    run_id = Map.get(surfer_context, :run_id) || Map.get(surfer_context, "run_id")
+
+    case reason do
+      :normal ->
+        body = "Surfer run #{run_id} completed."
+        linear_status = post_linear_session_activity(running_entry, session_id, :response, body)
+        discord_status = post_discord_status(running_entry, surfer_context, body)
+
+        record_surfer_status(running_entry, "completed",
+          reason: "runner completed",
+          actor: "surfer",
+          external_write_status: external_write_status(linear: linear_status, discord: discord_status)
+        )
+
+      _ ->
+        body = "Surfer run #{run_id} failed: #{inspect(reason)}"
+        linear_status = post_linear_session_activity(running_entry, session_id, :error, body)
+        discord_status = post_discord_status(running_entry, surfer_context, body)
+
+        record_surfer_status(running_entry, "failed",
+          reason: "runner failed",
+          actor: "surfer",
+          error_message: inspect(reason),
+          external_write_status: external_write_status(linear: linear_status, discord: discord_status)
+        )
+    end
+  end
+
+  defp post_surfer_completion(_running_entry, _reason), do: :ok
+
+  defp normalize_task_exit_reason(:normal), do: :normal
+  defp normalize_task_exit_reason(:noproc), do: :normal
+  defp normalize_task_exit_reason(_reason), do: :error
+
+  defp post_linear_session_activity(running_entry, session_id, type, body)
+       when is_binary(session_id) and is_atom(type) and is_binary(body) do
+    result =
+      case Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun) do
+        fun when is_function(fun, 3) ->
+          fun.(session_id, type, body)
+
+        _ ->
+          case type do
+            :response -> LinearSession.final_response(session_id, body)
+            :error -> LinearSession.error(session_id, body)
+          end
+      end
+
+    maybe_record_pending_linear_write(result, running_entry, session_id, type, body)
+  end
+
+  defp post_linear_session_activity(_running_entry, _session_id, _type, _body), do: :skipped
+
+  defp maybe_record_pending_linear_write(:ok, _running_entry, _session_id, _type, _body), do: :posted
+
+  defp maybe_record_pending_linear_write({:error, reason}, running_entry, session_id, type, body) do
+    payload = %{
+      session_id: session_id,
+      type: to_string(type),
+      body: body,
+      error: inspect(reason)
+    }
+
+    record_pending_platform_write(running_entry, "linear", "#{session_id}:#{type}", payload)
+    :pending
+  end
+
+  defp maybe_record_pending_linear_write(_result, _running_entry, _session_id, _type, _body), do: :unknown
+
+  defp post_discord_status(running_entry, %{source_platform: "discord", discord: %{channel_id: channel_id}}, body)
+       when is_binary(channel_id) do
+    channel_id
+    |> post_discord_message(body)
+    |> maybe_record_pending_discord_write(running_entry, channel_id, body)
+  end
+
+  defp post_discord_status(running_entry, %{"source_platform" => "discord", "discord" => %{"channel_id" => channel_id}}, body)
+       when is_binary(channel_id) do
+    channel_id
+    |> post_discord_message(body)
+    |> maybe_record_pending_discord_write(running_entry, channel_id, body)
+  end
+
+  defp post_discord_status(_running_entry, _surfer_context, _body), do: :skipped
+
+  defp post_discord_message(channel_id, body) do
+    case Application.get_env(:symphony_elixir, :surfer_discord_post_fun) do
+      fun when is_function(fun, 2) ->
+        fun.(channel_id, body)
+
+      _ ->
+        DiscordNotifier.post_message(channel_id, body, bot_token: Config.settings!().surfer.platforms.discord.bot_token)
+    end
+  end
+
+  defp maybe_record_pending_discord_write(:ok, _running_entry, _channel_id, _body), do: :posted
+
+  defp maybe_record_pending_discord_write({:error, reason}, running_entry, channel_id, body) do
+    payload = %{
+      type: "channel_message",
+      channel_id: channel_id,
+      body: body,
+      error: inspect(reason)
+    }
+
+    run_id = running_entry_run_id(running_entry)
+    external_id = Enum.join([channel_id, "channel_message", run_id], ":")
+
+    record_pending_platform_write(running_entry, "discord", external_id, payload)
+    :pending
+  end
+
+  defp maybe_record_pending_discord_write(_result, _running_entry, _channel_id, _body) do
+    :unknown
+  end
+
+  defp external_write_status(statuses) do
+    statuses
+    |> Enum.reject(fn {_platform, status} -> status == :skipped end)
+    |> Map.new(fn {platform, status} -> {platform, to_string(status)} end)
+  end
 
   defp choose_issues(issues, state) do
     active_states = active_state_set()
@@ -782,6 +987,8 @@ defmodule SymphonyElixir.Orchestrator do
     error = pick_retry_error(previous_retry, metadata)
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
+    run_id = pick_retry_run_id(previous_retry, metadata)
+    run_context = run_context(run_id)
 
     if is_reference(old_timer) do
       Process.cancel_timer(old_timer)
@@ -791,7 +998,7 @@ defmodule SymphonyElixir.Orchestrator do
 
     error_suffix = if is_binary(error), do: " error=#{error}", else: ""
 
-    Logger.warning("Retrying issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}")
+    Logger.warning("Retrying issue_id=#{issue_id}#{run_context} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}")
 
     %{
       state
@@ -804,7 +1011,8 @@ defmodule SymphonyElixir.Orchestrator do
             identifier: identifier,
             error: error,
             worker_host: worker_host,
-            workspace_path: workspace_path
+            workspace_path: workspace_path,
+            run_id: run_id
           })
     }
   end
@@ -879,8 +1087,13 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp cleanup_issue_workspace(_identifier, _worker_host), do: :ok
 
-  defp run_terminal_workspace_cleanup do
-    case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states) do
+  defp run_terminal_workspace_cleanup(config) do
+    run_legacy_terminal_workspace_cleanup(config)
+    run_surfer_workspace_retention_cleanup(config)
+  end
+
+  defp run_legacy_terminal_workspace_cleanup(config) do
+    case Tracker.fetch_issues_by_states(config.tracker.terminal_states) do
       {:ok, issues} ->
         issues
         |> Enum.each(fn
@@ -895,6 +1108,35 @@ defmodule SymphonyElixir.Orchestrator do
         Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
     end
   end
+
+  defp run_surfer_workspace_retention_cleanup(config) do
+    storage = config.surfer.storage
+    db_path = storage.sqlite_path
+    workspace_root = config.surfer.workspace_root || config.workspace.root
+
+    cond do
+      not populated_path?(db_path) or not File.exists?(db_path) ->
+        :ok
+
+      not populated_path?(workspace_root) ->
+        :ok
+
+      true ->
+        case WorkspaceLifecycle.cleanup(workspace_root, db_path,
+               successful_ttl_days: storage.workspace_retention_days,
+               failed_ttl_days: 30
+             ) do
+          {:ok, _summary} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Skipping Surfer startup workspace retention cleanup: #{inspect(reason)}")
+        end
+    end
+  end
+
+  defp populated_path?(path) when is_binary(path), do: String.trim(path) != ""
+  defp populated_path?(_path), do: false
 
   defp notify_dashboard do
     StatusDashboard.notify_update()
@@ -962,6 +1204,10 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp pick_retry_workspace_path(previous_retry, metadata) do
     metadata[:workspace_path] || Map.get(previous_retry, :workspace_path)
+  end
+
+  defp pick_retry_run_id(previous_retry, metadata) do
+    metadata[:run_id] || Map.get(previous_retry, :run_id)
   end
 
   defp maybe_put_runtime_value(running_entry, _key, nil), do: running_entry
@@ -1054,6 +1300,18 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp running_entry_session_id(_running_entry), do: "n/a"
 
+  defp running_entry_run_context(running_entry) do
+    running_entry
+    |> running_entry_run_id()
+    |> run_context()
+  end
+
+  defp running_entry_run_id(%{surfer_context: surfer_context}), do: run_id_from_context(surfer_context)
+  defp running_entry_run_id(_running_entry), do: nil
+
+  defp run_context(run_id) when is_binary(run_id) and run_id != "", do: " run_id=#{run_id}"
+  defp run_context(_run_id), do: ""
+
   defp issue_context(%Issue{id: issue_id, identifier: identifier}) do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"
   end
@@ -1098,6 +1356,83 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @impl true
+  def handle_call({:cancel_running_runs, opts}, _from, state) do
+    reason = Keyword.get(opts, :reason, "Surfer paused")
+    actor = Keyword.get(opts, :actor, "operator")
+
+    {cancelled, state} =
+      state.running
+      |> Map.keys()
+      |> Enum.reduce({[], state}, fn issue_id, {cancelled_acc, state_acc} ->
+        cancel_running_issue(state_acc, issue_id, reason, actor, cancelled_acc)
+      end)
+
+    emit_runtime_gauges(state)
+    notify_dashboard()
+
+    {:reply, {:ok, %{count: length(cancelled), runs: Enum.reverse(cancelled)}}, state}
+  end
+
+  def handle_call({:cancel_run, run_id, opts}, _from, state) do
+    reason = Keyword.get(opts, :reason, "cancelled by operator")
+    actor = Keyword.get(opts, :actor, "operator")
+
+    case running_issue_id_for_run_id(state.running, run_id) do
+      nil ->
+        {:reply, {:error, :not_running}, state}
+
+      issue_id ->
+        {[cancelled], state} =
+          cancel_running_issue(state, issue_id, reason, actor, [], record_status: Keyword.get(opts, :record_status, true))
+
+        emit_runtime_gauges(state)
+        notify_dashboard()
+
+        {:reply, {:ok, cancelled}, state}
+    end
+  end
+
+  def handle_call({:dispatch_run, %RunRequest{} = request, opts}, from, state) do
+    runner_fun = Keyword.get(opts, :runner_fun, &AgentRunner.run/3)
+    request = attach_company_brain_refs(request)
+    issue = request_issue(request)
+    recipient = self()
+    surfer_context = RunRequest.surfer_context(request)
+
+    cond do
+      direct_issue_already_claimed?(state, issue) ->
+        record_direct_dispatch_blocked(request, "awaiting_input",
+          reason: "already claimed linear issue",
+          actor: "surfer",
+          error_code: "already_claimed",
+          error_message: "Linear issue #{issue.id} already has an active Surfer run"
+        )
+
+        {:reply, {:error, {:already_claimed, issue.id}}, state}
+
+      repository_write_busy?(state, request) ->
+        repository_key = repository_key(request.routing)
+
+        record_direct_dispatch_blocked(request, "awaiting_input",
+          reason: "repository busy",
+          actor: "surfer",
+          error_code: "repository_busy",
+          error_message: "Repository #{repository_key} already has an active write Surfer run"
+        )
+
+        {:reply, {:error, {:repository_busy, repository_key}}, state}
+
+      true ->
+        case record_direct_dispatch_started(request) do
+          :ok ->
+            start_direct_dispatch_worker(state, from, request, issue, recipient, surfer_context, runner_fun)
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+    end
+  end
+
   def handle_call(:snapshot, _from, state) do
     state = refresh_runtime_config(state)
     now = DateTime.utc_now()
@@ -1168,6 +1503,384 @@ defmodule SymphonyElixir.Orchestrator do
        operations: ["poll", "reconcile"]
      }, state}
   end
+
+  defp start_direct_dispatch_worker(state, from, request, issue, recipient, surfer_context, runner_fun) do
+    start_token = make_ref()
+
+    case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
+           receive do
+             {:run_direct_dispatch, ^start_token} ->
+               result =
+                 runner_fun.(issue, recipient,
+                   surfer_context: surfer_context,
+                   workspace_identifier: surfer_workspace_identifier(request)
+                 )
+
+               send(recipient, {:direct_dispatch_completed, issue.id, self()})
+               result
+           end
+         end) do
+      {:ok, pid} ->
+        ref = Process.monitor(pid)
+        Logger.info("Dispatching Surfer run to agent: run_id=#{request.run_id} issue_id=#{issue.id} source_platform=#{request.source.platform}")
+
+        running =
+          Map.put(state.running, issue.id, %{
+            pid: pid,
+            ref: ref,
+            identifier: issue.identifier,
+            issue: issue,
+            worker_host: nil,
+            workspace_path: nil,
+            session_id: request.lineage.linear[:agent_session_id],
+            surfer_context: surfer_context,
+            dispatch_kind: :direct,
+            last_codex_message: nil,
+            last_codex_timestamp: nil,
+            last_codex_event: nil,
+            codex_app_server_pid: nil,
+            codex_input_tokens: 0,
+            codex_output_tokens: 0,
+            codex_total_tokens: 0,
+            codex_last_reported_input_tokens: 0,
+            codex_last_reported_output_tokens: 0,
+            codex_last_reported_total_tokens: 0,
+            turn_count: 0,
+            retry_attempt: nil,
+            started_at: DateTime.utc_now()
+          })
+
+        state = %{state | running: running, claimed: MapSet.put(state.claimed, issue.id)}
+        send(pid, {:run_direct_dispatch, start_token})
+        GenServer.reply(from, :ok)
+        emit_runtime_gauges(state)
+        notify_dashboard()
+        {:noreply, state}
+
+      {:error, reason} ->
+        record_surfer_status(request, "failed",
+          reason: "failed to spawn runner",
+          actor: "surfer",
+          error_message: inspect(reason)
+        )
+
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp attach_company_brain_refs(%RunRequest{} = request) do
+    github = Config.settings!().surfer.platforms.github
+    paths = configured_company_brain_paths(request, github)
+    fetch_fun = Application.get_env(:symphony_elixir, :surfer_company_brain_fetch_fun)
+    maybe_attach_company_brain_refs(request, github, paths, fetch_fun)
+  end
+
+  defp maybe_attach_company_brain_refs(%RunRequest{} = request, _github, [], _fetch_fun), do: request
+
+  defp maybe_attach_company_brain_refs(%RunRequest{} = request, github, paths, fetch_fun) do
+    config = %{
+      company_brain_repo: Map.get(github, :company_brain_repo),
+      company_brain_paths: paths,
+      fetch_fun: fetch_fun
+    }
+
+    case CompanyBrain.retrieve(config) do
+      {:ok, []} ->
+        request
+
+      {:ok, refs} ->
+        context = request.context || %{}
+        %{request | context: Map.put(context, :company_brain_refs, refs)}
+
+      {:error, reason} ->
+        Logger.warning("Failed to retrieve Surfer Company Brain context run_id=#{request.run_id}: #{inspect(reason)}")
+        request
+    end
+  end
+
+  defp configured_company_brain_paths(%RunRequest{} = request, _github) do
+    request.routing
+    |> Map.get(:company_brain_paths)
+    |> normalize_company_brain_paths()
+  end
+
+  defp normalize_company_brain_paths(paths) when is_list(paths), do: Enum.filter(paths, &is_binary/1)
+  defp normalize_company_brain_paths(_paths), do: []
+
+  defp request_issue(%RunRequest{issue: %Issue{} = issue}), do: issue
+
+  defp request_issue(%RunRequest{} = request) do
+    %Issue{
+      id: request.run_id,
+      identifier: request.run_id,
+      title: request.request.title || "Surfer request",
+      description: request.request.body,
+      state: "Surfer",
+      labels: []
+    }
+  end
+
+  defp surfer_workspace_identifier(%RunRequest{} = request) do
+    repository_slug =
+      request.routing
+      |> repository_key()
+      |> case do
+        repository_key when is_binary(repository_key) and repository_key != "" ->
+          repository_key
+
+        _ ->
+          "unrouted"
+      end
+
+    [repository_slug, request.run_id]
+  end
+
+  defp running_issue_id_for_run_id(running, run_id) when is_map(running) and is_binary(run_id) do
+    Enum.find_value(running, fn {issue_id, running_entry} ->
+      cond do
+        issue_id == run_id -> issue_id
+        running_entry_run_id(running_entry) == run_id -> issue_id
+        true -> nil
+      end
+    end)
+  end
+
+  defp running_issue_id_for_run_id(_running, _run_id), do: nil
+
+  defp cancel_running_issue(%State{} = state, issue_id, reason, actor, cancelled_acc, opts \\ []) do
+    running_entry = Map.get(state.running, issue_id)
+    run_id = running_entry_run_id(running_entry)
+
+    if Keyword.get(opts, :record_status, true) do
+      record_surfer_status(running_entry, "cancelled",
+        reason: "operator pause",
+        actor: actor,
+        error_message: reason
+      )
+    end
+
+    cancelled =
+      %{
+        issue_id: issue_id,
+        run_id: run_id
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    {[cancelled | cancelled_acc], terminate_running_issue(state, issue_id, false)}
+  end
+
+  defp direct_issue_already_claimed?(%State{} = state, %Issue{id: issue_id}) when is_binary(issue_id) do
+    MapSet.member?(state.claimed, issue_id) or Map.has_key?(state.running, issue_id)
+  end
+
+  defp direct_issue_already_claimed?(_state, _issue), do: false
+
+  defp repository_write_busy?(%State{} = state, %RunRequest{} = request) do
+    with true <- write_run?(request.request.mode),
+         repository_key when is_binary(repository_key) <- repository_key(request.routing) do
+      Enum.any?(state.running, fn {_issue_id, running_entry} ->
+        running_entry
+        |> Map.get(:surfer_context, %{})
+        |> same_write_repository?(repository_key)
+      end)
+    else
+      _ -> false
+    end
+  end
+
+  defp write_run?(mode) when mode in [:durable_task, :issue_create, "durable_task", "issue_create"], do: true
+  defp write_run?(_mode), do: false
+
+  defp same_write_repository?(%{request_mode: mode, routing: routing}, repository_key) do
+    write_run?(mode) and repository_key(routing) == repository_key
+  end
+
+  defp same_write_repository?(%{"request_mode" => mode, "routing" => routing}, repository_key) do
+    write_run?(mode) and repository_key(routing) == repository_key
+  end
+
+  defp same_write_repository?(_context, _repository_key), do: false
+
+  defp repository_key(routing) when is_map(routing) do
+    Map.get(routing, :repository_key) || Map.get(routing, "repository_key") || Map.get(routing, :repository) || Map.get(routing, "repository")
+  end
+
+  defp repository_key(_routing), do: nil
+
+  defp record_direct_dispatch_started(%RunRequest{} = request) do
+    case surfer_ledger_path() do
+      {:ok, db_path} ->
+        with :ok <- RunLedger.initialize(db_path),
+             :ok <- RunLedger.upsert_run(db_path, request, status: "queued") do
+          RunLedger.update_status(db_path, request.run_id, "running",
+            reason: "direct dispatch accepted",
+            actor: "surfer"
+          )
+        end
+
+      :disabled ->
+        :ok
+    end
+  end
+
+  defp record_direct_dispatch_blocked(%RunRequest{} = request, status, opts) do
+    case surfer_ledger_path() do
+      {:ok, db_path} ->
+        result =
+          with :ok <- RunLedger.initialize(db_path),
+               :ok <- RunLedger.upsert_run(db_path, request, status: "queued") do
+            RunLedger.update_status(db_path, request.run_id, status, opts)
+          end
+
+        case result do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Failed to record blocked Surfer dispatch run_id=#{request.run_id} status=#{status}: #{inspect(reason)}")
+
+            :ok
+        end
+
+      :disabled ->
+        :ok
+    end
+  end
+
+  defp emit_runtime_gauges(%State{} = state) do
+    metadata = %{source: :orchestrator}
+    Metrics.emit(:running_runs, %{count: map_size(state.running)}, metadata)
+    Metrics.emit(:queued_runs, %{count: map_size(state.retry_attempts)}, metadata)
+  end
+
+  defp emit_codex_run_duration(running_entry) when is_map(running_entry) do
+    case Map.get(running_entry, :started_at) do
+      %DateTime{} = started_at ->
+        duration_ms =
+          started_at
+          |> DateTime.diff(DateTime.utc_now(), :millisecond)
+          |> abs()
+
+        metadata =
+          running_entry
+          |> Map.get(:surfer_context, %{})
+          |> run_id_from_context()
+          |> case do
+            run_id when is_binary(run_id) -> %{run_id: run_id}
+            _ -> %{}
+          end
+
+        Metrics.emit(:codex_run_ms, %{duration_ms: duration_ms}, metadata)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp record_surfer_status(%RunRequest{} = request, status, opts) do
+    update_surfer_run_status(request.run_id, status, opts)
+  end
+
+  defp record_surfer_status(running_entry, status, opts) when is_map(running_entry) do
+    running_entry
+    |> Map.get(:surfer_context, %{})
+    |> run_id_from_context()
+    |> update_surfer_run_status(status, opts)
+  end
+
+  defp update_surfer_run_status(nil, _status, _opts), do: :ok
+
+  defp update_surfer_run_status(run_id, status, opts) when is_binary(run_id) do
+    case surfer_ledger_path() do
+      {:ok, db_path} ->
+        case RunLedger.update_status(db_path, run_id, status, opts) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Failed to update Surfer run ledger status run_id=#{run_id} status=#{status}: #{inspect(reason)}")
+            :ok
+        end
+
+      :disabled ->
+        :ok
+    end
+  end
+
+  defp record_pending_platform_write(running_entry, platform, external_id, payload) do
+    run_id =
+      running_entry
+      |> Map.get(:surfer_context, %{})
+      |> run_id_from_context()
+
+    emit_pending_platform_write_failure(run_id, platform, external_id, payload)
+
+    case {run_id, surfer_ledger_path()} do
+      {run_id, {:ok, db_path}} when is_binary(run_id) ->
+        idempotency_hash =
+          payload
+          |> Jason.encode!()
+          |> then(&:crypto.hash(:sha256, &1))
+          |> Base.encode16(case: :lower)
+
+        case RunLedger.record_pending_write(db_path, run_id, %{
+               platform: platform,
+               external_id: external_id,
+               idempotency_hash: idempotency_hash,
+               payload: payload
+             }) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Failed to record pending platform write run_id=#{run_id} platform=#{platform}: #{inspect(reason)}")
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp emit_pending_platform_write_failure(run_id, platform, external_id, payload) do
+    metadata =
+      %{
+        run_id: run_id,
+        platform: platform,
+        external_id: external_id,
+        reason: payload_error(payload)
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    Metrics.emit(:platform_write_failures, %{count: 1}, metadata)
+  end
+
+  defp payload_error(payload) when is_map(payload) do
+    Map.get(payload, :error) || Map.get(payload, "error")
+  end
+
+  defp run_id_from_context(%{run_id: run_id}), do: run_id
+  defp run_id_from_context(%{"run_id" => run_id}), do: run_id
+  defp run_id_from_context(_context), do: nil
+
+  defp surfer_ledger_path do
+    case Config.settings() do
+      {:ok, settings} ->
+        ledger_path(settings.surfer.storage.sqlite_path)
+
+      {:error, reason} ->
+        Logger.debug("Skipping Surfer ledger write because config is unavailable: #{inspect(reason)}")
+        :disabled
+    end
+  end
+
+  defp ledger_path(path) when is_binary(path) do
+    if String.trim(path) == "", do: :disabled, else: {:ok, path}
+  end
+
+  defp ledger_path(_path), do: :disabled
 
   defp integrate_codex_update(running_entry, %{event: event, timestamp: timestamp} = update) do
     token_delta = extract_token_delta(running_entry, update)
@@ -1270,10 +1983,6 @@ defmodule SymphonyElixir.Orchestrator do
     max(0, next_poll_due_at_ms - now_ms)
   end
 
-  defp pop_running_entry(state, issue_id) do
-    {Map.get(state.running, issue_id), %{state | running: Map.delete(state.running, issue_id)}}
-  end
-
   defp record_session_completion_totals(state, running_entry) when is_map(running_entry) do
     runtime_seconds = running_seconds(running_entry.started_at, DateTime.utc_now())
 
@@ -1294,13 +2003,18 @@ defmodule SymphonyElixir.Orchestrator do
   defp record_session_completion_totals(state, _running_entry), do: state
 
   defp refresh_runtime_config(%State{} = state) do
-    config = Config.settings!()
+    case Config.settings() do
+      {:ok, config} ->
+        %{
+          state
+          | poll_interval_ms: config.polling.interval_ms,
+            max_concurrent_agents: config.agent.max_concurrent_agents
+        }
 
-    %{
-      state
-      | poll_interval_ms: config.polling.interval_ms,
-        max_concurrent_agents: config.agent.max_concurrent_agents
-    }
+      {:error, reason} ->
+        Logger.debug("Skipping orchestrator runtime config refresh: #{inspect(reason)}")
+        state
+    end
   end
 
   defp retry_candidate_issue?(%Issue{} = issue, terminal_states) do

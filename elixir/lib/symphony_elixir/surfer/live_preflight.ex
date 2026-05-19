@@ -1,0 +1,164 @@
+defmodule SymphonyElixir.Surfer.LivePreflight do
+  @moduledoc """
+  Preflight checks for Surfer V0.1 live smoke validation.
+  """
+
+  @platform_env [
+    "LINEAR_API_KEY",
+    "LINEAR_ACCESS_TOKEN",
+    "LINEAR_WEBHOOK_SECRET",
+    "LINEAR_PROJECT_SLUG",
+    "LINEAR_TEAM_ID",
+    "DISCORD_PUBLIC_KEY",
+    "DISCORD_APPLICATION_ID",
+    "DISCORD_BOT_TOKEN",
+    "DISCORD_GUILD_ID",
+    "DISCORD_ALLOWED_GUILDS",
+    "DISCORD_ALLOWED_CHANNELS",
+    "DISCORD_REPORT_CHANNEL_ID",
+    "GITHUB_TOKEN",
+    "SURFER_REPOSITORY_URL",
+    "SURFER_PUBLIC_URL",
+    "SURFER_SQLITE_PATH"
+  ]
+
+  @runtime_path_env [
+    {"SURFER_WORKSPACE_ROOT", :workspace_root},
+    {"SURFER_LOGS_DIR", :logs_dir},
+    {"SURFER_STATE_DIR", :state_dir},
+    {"SURFER_CODEX_HOME", :codex_home}
+  ]
+
+  @required_env @platform_env ++ Enum.map(@runtime_path_env, &elem(&1, 0))
+  @default_codex_command "codex login status"
+
+  @type result :: %{
+          ok?: boolean(),
+          missing_env: [String.t()],
+          failed_checks: [map()],
+          passed_checks: [atom()]
+        }
+
+  @spec required_env_vars() :: [String.t()]
+  def required_env_vars, do: @required_env
+
+  @spec check(keyword()) :: result()
+  def check(opts \\ []) do
+    env = Keyword.get(opts, :env, System.get_env())
+    codex_check? = Keyword.get(opts, :codex_check?, true)
+    path_check? = Keyword.get(opts, :path_check?, true)
+    command = Keyword.get(opts, :codex_command, @default_codex_command)
+    command_runner = Keyword.get(opts, :command_runner, &run_command/1)
+    path_checker = Keyword.get(opts, :path_checker, &writable_directory_status/1)
+    sqlite_path_checker = Keyword.get(opts, :sqlite_path_checker, &writable_sqlite_path_status/1)
+
+    missing_env = missing_env(env)
+
+    {failed_checks, passed_checks} =
+      {[], []}
+      |> check_public_url(env)
+      |> maybe_check_runtime_paths(path_check?, env, path_checker)
+      |> maybe_check_sqlite_path(path_check?, env, sqlite_path_checker)
+      |> maybe_check_codex(codex_check?, command, command_runner)
+
+    %{
+      ok?: missing_env == [] and failed_checks == [],
+      missing_env: missing_env,
+      failed_checks: failed_checks,
+      passed_checks: passed_checks
+    }
+  end
+
+  defp missing_env(env) do
+    Enum.filter(@required_env, fn key ->
+      case Map.get(env, key) do
+        value when is_binary(value) -> String.trim(value) == ""
+        _value -> true
+      end
+    end)
+  end
+
+  defp check_public_url({failed, passed}, env) do
+    case Map.get(env, "SURFER_PUBLIC_URL") do
+      "https://" <> rest when rest != "" ->
+        {failed, [:surfer_public_url | passed]}
+
+      value when is_binary(value) and value != "" ->
+        {[%{name: :surfer_public_url, reason: :must_be_https_url} | failed], passed}
+
+      _value ->
+        {failed, passed}
+    end
+  end
+
+  defp maybe_check_runtime_paths({failed, passed}, false, _env, _path_checker), do: {failed, passed}
+
+  defp maybe_check_runtime_paths({failed, passed}, true, env, path_checker) do
+    Enum.reduce(@runtime_path_env, {failed, passed}, fn {key, name}, {failed_acc, passed_acc} ->
+      path = Map.get(env, key)
+
+      case path_checker.(path) do
+        :ok -> {failed_acc, [name | passed_acc]}
+        {:error, reason} -> {[%{name: :runtime_path, env: key, path: path, reason: reason} | failed_acc], passed_acc}
+      end
+    end)
+  end
+
+  defp maybe_check_sqlite_path({failed, passed}, false, _env, _sqlite_path_checker), do: {failed, passed}
+
+  defp maybe_check_sqlite_path({failed, passed}, true, env, sqlite_path_checker) do
+    path = Map.get(env, "SURFER_SQLITE_PATH")
+
+    case sqlite_path_checker.(path) do
+      :ok -> {failed, [:sqlite_path | passed]}
+      {:error, reason} -> {[%{name: :sqlite_path, env: "SURFER_SQLITE_PATH", path: path, reason: reason} | failed], passed}
+    end
+  end
+
+  defp maybe_check_codex({failed, passed}, false, _command, _command_runner), do: {Enum.reverse(failed), Enum.reverse(passed)}
+
+  defp maybe_check_codex({failed, passed}, true, command, command_runner) do
+    case command_runner.(command) do
+      {:ok, _output} -> {Enum.reverse(failed), Enum.reverse([:codex_oauth | passed])}
+      {:error, reason} -> {Enum.reverse([%{name: :codex_oauth, reason: reason} | failed]), Enum.reverse(passed)}
+    end
+  end
+
+  defp run_command(command) do
+    case System.cmd("sh", ["-lc", command], stderr_to_stdout: true) do
+      {_output, 0} -> {:ok, :passed}
+      {_output, status} -> {:error, {:exit_status, status}}
+    end
+  end
+
+  defp writable_directory_status(path) when is_binary(path) and path != "" do
+    if File.dir?(path) do
+      write_probe(path)
+    else
+      {:error, :missing_directory}
+    end
+  end
+
+  defp writable_directory_status(_path), do: {:error, :missing_directory}
+
+  defp writable_sqlite_path_status(path) when is_binary(path) and path != "" do
+    path
+    |> Path.dirname()
+    |> writable_directory_status()
+  end
+
+  defp writable_sqlite_path_status(_path), do: {:error, :missing_directory}
+
+  defp write_probe(path) do
+    probe = Path.join(path, ".surfer-preflight-#{System.unique_integer([:positive])}")
+
+    case File.write(probe, "") do
+      :ok ->
+        File.rm(probe)
+        :ok
+
+      {:error, _reason} ->
+        {:error, :not_writable}
+    end
+  end
+end

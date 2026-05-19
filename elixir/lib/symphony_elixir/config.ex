@@ -98,6 +98,15 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec validate_startup!() :: :ok | {:error, term()}
+  def validate_startup! do
+    with {:ok, settings} <- settings() do
+      with :ok <- validate_surfer_platforms(settings.surfer.platforms) do
+        validate_surfer_storage(settings.surfer)
+      end
+    end
+  end
+
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
@@ -115,23 +124,53 @@ defmodule SymphonyElixir.Config do
   end
 
   defp validate_semantics(settings) do
-    cond do
-      is_nil(settings.tracker.kind) ->
-        {:error, :missing_tracker_kind}
-
-      settings.tracker.kind not in ["linear", "memory"] ->
-        {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
-
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
-        {:error, :missing_linear_api_token}
-
-      settings.tracker.kind == "linear" and not is_binary(settings.tracker.project_slug) ->
-        {:error, :missing_linear_project_slug}
-
-      true ->
-        :ok
+    with :ok <- validate_tracker(settings.tracker),
+         :ok <- validate_surfer_platforms(settings.surfer.platforms) do
+      validate_surfer_storage(settings.surfer)
     end
   end
+
+  defp validate_tracker(tracker) do
+    cond do
+      is_nil(tracker.kind) -> {:error, :missing_tracker_kind}
+      tracker.kind not in ["linear", "memory"] -> {:error, {:unsupported_tracker_kind, tracker.kind}}
+      tracker.kind == "linear" and not is_binary(tracker.api_key) -> {:error, :missing_linear_api_token}
+      tracker.kind == "linear" and not is_binary(tracker.project_slug) -> {:error, :missing_linear_project_slug}
+      true -> :ok
+    end
+  end
+
+  defp validate_surfer_platforms(platforms) do
+    Enum.find_value(
+      [
+        {:linear, :webhook_secret, platforms.linear.enabled, platforms.linear.webhook_secret},
+        {:linear, :access_token, platforms.linear.enabled, platforms.linear.access_token},
+        {:discord, :public_key, platforms.discord.enabled, platforms.discord.public_key},
+        {:discord, :bot_token, platforms.discord.enabled, platforms.discord.bot_token},
+        {:github, :token, platforms.github.enabled, platforms.github.token}
+      ],
+      :ok,
+      fn {platform, field, enabled?, value} ->
+        if enabled? == true and blank?(value) do
+          {:error, {:missing_surfer_platform_secret, platform, field}}
+        end
+      end
+    )
+  end
+
+  defp validate_surfer_storage(surfer) do
+    if surfer_platform_enabled?(surfer.platforms) and blank?(surfer.storage.sqlite_path) do
+      {:error, {:missing_surfer_storage_path, :sqlite_path}}
+    else
+      :ok
+    end
+  end
+
+  defp surfer_platform_enabled?(platforms) do
+    Enum.any?([platforms.linear, platforms.discord, platforms.github], &(&1.enabled == true))
+  end
+
+  defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
 
   defp format_config_error(reason) do
     case reason do

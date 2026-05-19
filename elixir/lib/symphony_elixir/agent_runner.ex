@@ -13,36 +13,49 @@ defmodule SymphonyElixir.AgentRunner do
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
     # The orchestrator owns host retries so one worker lifetime never hops machines.
     worker_host = selected_worker_host(Keyword.get(opts, :worker_host), Config.settings!().worker.ssh_hosts)
+    log_context = surfer_log_context(opts)
 
-    Logger.info("Starting agent run for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
+    Logger.info("Starting agent run for #{issue_context(issue)}#{log_context} worker_host=#{worker_host_for_log(worker_host)}")
 
     case run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
       :ok ->
         :ok
 
       {:error, reason} ->
-        Logger.error("Agent run failed for #{issue_context(issue)}: #{inspect(reason)}")
-        raise RuntimeError, "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}"
+        Logger.error("Agent run failed for #{issue_context(issue)}#{log_context}: #{inspect(reason)}")
+        raise RuntimeError, "Agent run failed for #{issue_context(issue)}#{log_context}: #{inspect(reason)}"
     end
   end
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
-    Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
+    Logger.info("Starting worker attempt for #{issue_context(issue)}#{surfer_log_context(opts)} worker_host=#{worker_host_for_log(worker_host)}")
 
-    case Workspace.create_for_issue(issue, worker_host) do
+    workspace_target = workspace_target(issue, opts)
+
+    case Workspace.create_for_issue(workspace_target, worker_host) do
       {:ok, workspace} ->
         send_worker_runtime_info(codex_update_recipient, issue, worker_host, workspace)
 
         try do
-          with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host) do
-            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+          with :ok <- Workspace.run_before_run_hook(workspace, workspace_target, worker_host) do
+            run_codex_turns_with_lock(workspace, workspace_target, issue, codex_update_recipient, opts, worker_host)
           end
         after
-          Workspace.run_after_run_hook(workspace, issue, worker_host)
+          Workspace.run_after_run_hook(workspace, workspace_target, worker_host)
         end
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp run_codex_turns_with_lock(workspace, workspace_target, issue, codex_update_recipient, opts, worker_host) do
+    with :ok <- Workspace.create_run_lock(workspace, workspace_target, worker_host) do
+      try do
+        run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+      after
+        Workspace.remove_run_lock(workspace, workspace_target, worker_host)
+      end
     end
   end
 
@@ -80,7 +93,11 @@ defmodule SymphonyElixir.AgentRunner do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
-    with {:ok, session} <- AppServer.start_session(workspace, worker_host: worker_host) do
+    with {:ok, session} <-
+           AppServer.start_session(workspace,
+             worker_host: worker_host,
+             log_context: surfer_log_context(opts)
+           ) do
       try do
         do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, 1, max_turns)
       after
@@ -97,13 +114,14 @@ defmodule SymphonyElixir.AgentRunner do
              app_session,
              prompt,
              issue,
-             on_message: codex_message_handler(codex_update_recipient, issue)
+             on_message: codex_message_handler(codex_update_recipient, issue),
+             log_context: surfer_log_context(opts)
            ) do
-      Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
+      Logger.info("Completed agent run for #{issue_context(issue)}#{surfer_log_context(opts)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
 
       case continue_with_issue?(issue, issue_state_fetcher) do
         {:continue, refreshed_issue} when turn_number < max_turns ->
-          Logger.info("Continuing agent run for #{issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns}")
+          Logger.info("Continuing agent run for #{issue_context(refreshed_issue)}#{surfer_log_context(opts)} after normal turn completion turn=#{turn_number}/#{max_turns}")
 
           do_run_codex_turns(
             app_session,
@@ -117,7 +135,7 @@ defmodule SymphonyElixir.AgentRunner do
           )
 
         {:continue, refreshed_issue} ->
-          Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
+          Logger.info("Reached agent.max_turns for #{issue_context(refreshed_issue)}#{surfer_log_context(opts)} with issue still active; returning control to orchestrator")
 
           :ok
 
@@ -190,6 +208,41 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
+
+  defp surfer_log_context(opts) when is_list(opts) do
+    case opts |> Keyword.get(:surfer_context) |> surfer_run_id() do
+      run_id when is_binary(run_id) and run_id != "" -> " run_id=#{run_id}"
+      _ -> ""
+    end
+  end
+
+  defp surfer_run_id(%{run_id: run_id}), do: run_id
+  defp surfer_run_id(%{"run_id" => run_id}), do: run_id
+  defp surfer_run_id(_context), do: nil
+
+  defp workspace_target(issue, opts) do
+    run_id = opts |> Keyword.get(:surfer_context) |> surfer_run_id()
+
+    case {Keyword.fetch(opts, :workspace_identifier), run_id} do
+      {{:ok, workspace_identifier}, run_id} ->
+        %{
+          id: Map.get(issue, :id),
+          identifier: Map.get(issue, :identifier),
+          run_id: run_id,
+          workspace_identifier: workspace_identifier
+        }
+
+      {:error, run_id} when is_binary(run_id) and run_id != "" ->
+        %{
+          id: Map.get(issue, :id),
+          identifier: Map.get(issue, :identifier),
+          run_id: run_id
+        }
+
+      {:error, _run_id} ->
+        issue
+    end
+  end
 
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     state_name

@@ -28,7 +28,18 @@ defmodule SymphonyElixirWeb.Router do
   end
 
   scope "/", SymphonyElixirWeb do
+    post("/webhooks/linear/agent", SurferWebhookController, :linear_agent)
+    post("/webhooks/discord/message", SurferWebhookController, :discord_message)
+    post("/webhooks/discord/interactions", SurferWebhookController, :discord_interaction)
     get("/api/v1/state", ObservabilityApiController, :state)
+    post("/api/v1/surfer/pause", SurferWebhookController, :operator_pause)
+    post("/api/v1/surfer/unpause", SurferWebhookController, :operator_unpause)
+    get("/api/v1/surfer/runs/:run_id", SurferWebhookController, :operator_run)
+    post("/api/v1/surfer/runs/:run_id/cancel", SurferWebhookController, :operator_cancel_run)
+    post("/api/v1/surfer/runs/:run_id/retry", SurferWebhookController, :operator_retry_run)
+    post("/api/v1/surfer/runs/:run_id/takeover", SurferWebhookController, :operator_takeover_run)
+    post("/api/v1/surfer/outbox/requeue", SurferWebhookController, :operator_requeue_pending_writes)
+    post("/api/v1/surfer/ledger/backup", SurferWebhookController, :operator_backup_ledger)
 
     match(:*, "/", ObservabilityApiController, :method_not_allowed)
     match(:*, "/api/v1/state", ObservabilityApiController, :method_not_allowed)
@@ -36,6 +47,7 @@ defmodule SymphonyElixirWeb.Router do
     match(:*, "/api/v1/refresh", ObservabilityApiController, :method_not_allowed)
     get("/api/v1/:issue_identifier", ObservabilityApiController, :issue)
     match(:*, "/api/v1/:issue_identifier", ObservabilityApiController, :method_not_allowed)
+    post("/*path", SurferWebhookController, :platform_webhook)
     match(:*, "/*path", ObservabilityApiController, :not_found)
   end
 end
