@@ -143,6 +143,9 @@ defmodule SymphonyElixir.Surfer.Operator do
       {"external_urls", session_id} when is_binary(session_id) ->
         retry_linear_external_urls(session_id, value(payload, :external_urls) || [])
 
+      {"started", session_id} when is_binary(session_id) ->
+        retry_linear_started(session_id, value(payload, :run_id))
+
       {"response", session_id} when is_binary(session_id) ->
         retry_linear_activity(session_id, :response, value(payload, :body))
 
@@ -180,6 +183,15 @@ defmodule SymphonyElixir.Surfer.Operator do
   end
 
   defp retry_linear_external_urls(_session_id, _external_urls), do: {:error, :invalid_linear_external_urls}
+
+  defp retry_linear_started(session_id, run_id) when is_binary(session_id) and is_binary(run_id) do
+    case Application.get_env(:symphony_elixir, :surfer_linear_activity_fun) do
+      fun when is_function(fun, 2) -> fun.(session_id, run_id)
+      _ -> Session.started(session_id, run_id)
+    end
+  end
+
+  defp retry_linear_started(_session_id, _run_id), do: {:error, :missing_linear_started_run_id}
 
   defp retry_linear_activity(session_id, type, body) when is_binary(body) do
     case Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun) do

@@ -648,15 +648,18 @@ defmodule SymphonyElixir.SurferOperationsTest do
   end
 
   test "operator retries supported Linear pending writes through platform clients", %{db_path: db_path} do
+    previous_started_fun = Application.get_env(:symphony_elixir, :surfer_linear_activity_fun)
     previous_activity_fun = Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun)
     previous_external_urls_fun = Application.get_env(:symphony_elixir, :surfer_linear_external_urls_fun)
 
     on_exit(fn ->
+      restore_app_env(:surfer_linear_activity_fun, previous_started_fun)
       restore_app_env(:surfer_linear_session_activity_fun, previous_activity_fun)
       restore_app_env(:surfer_linear_external_urls_fun, previous_external_urls_fun)
     end)
 
     request = claimed_request!(db_path)
+    run_id = request.run_id
 
     assert :ok =
              RunLedger.record_pending_write(db_path, request.run_id, %{
@@ -664,6 +667,14 @@ defmodule SymphonyElixir.SurferOperationsTest do
                external_id: "session-1:response",
                idempotency_hash: "hash-response",
                payload: %{session_id: "session-1", type: "response", body: "Done"}
+             })
+
+    assert :ok =
+             RunLedger.record_pending_write(db_path, request.run_id, %{
+               platform: "linear",
+               external_id: "session-1:started",
+               idempotency_hash: "hash-started",
+               payload: %{session_id: "session-1", type: "started", run_id: request.run_id}
              })
 
     assert :ok =
@@ -685,14 +696,20 @@ defmodule SymphonyElixir.SurferOperationsTest do
       :ok
     end)
 
+    Application.put_env(:symphony_elixir, :surfer_linear_activity_fun, fn session_id, run_id ->
+      send(parent, {:linear_started_retry, session_id, run_id})
+      :ok
+    end)
+
     Application.put_env(:symphony_elixir, :surfer_linear_external_urls_fun, fn session_id, urls ->
       send(parent, {:linear_external_urls_retry, session_id, urls})
       :ok
     end)
 
-    assert {:ok, %{attempted: 2, drained: 2, failed: 0}} = Operator.requeue_pending_writes(db_path)
+    assert {:ok, %{attempted: 3, drained: 3, failed: 0}} = Operator.requeue_pending_writes(db_path)
 
     assert_receive {:linear_activity_retry, "session-1", :response, "Done"}
+    assert_receive {:linear_started_retry, "session-1", ^run_id}
     assert_receive {:linear_external_urls_retry, "session-1", [%{"label" => "Surfer run", "url" => "https://surfer.example.com/runs/surf-1"}]}
     assert {:ok, []} = RunLedger.list_pending_writes(db_path)
   end

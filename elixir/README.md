@@ -82,6 +82,7 @@ and is disabled in the Surfer workflow example.
 - Enabled Linear, Discord, and GitHub config fails closed at application startup when required
   secrets are missing.
 - Early Linear `thought` activity plus final `response` or `error` activity for direct-dispatch runs.
+  Failed initial `thought` writes are queued as retryable pending writes while dispatch continues.
   Pre-dispatch Linear error activity failures are queued as retryable pending writes.
 - Linear agent-session external URL mutation support, including a Surfer run lookup link when
   `surfer.external_base_url` is configured and pending-write capture if the update fails.
@@ -395,7 +396,9 @@ Pass a custom workflow file path to `./bin/symphony` when starting the service:
 ./bin/symphony /path/to/custom/WORKFLOW.md
 ```
 
-If no path is passed, Symphony defaults to `./WORKFLOW.md`.
+If no path is passed, Symphony defaults to `./WORKFLOW.md`. For Surfer v0.1 production hosting,
+start from `SURFER_WORKFLOW.example.md` or another workflow with `polling.enabled: false`; the
+in-repo `WORKFLOW.md` is the legacy Symphony polling workflow.
 
 Optional flags:
 

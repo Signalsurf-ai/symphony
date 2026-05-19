@@ -576,6 +576,77 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert metadata.reason == ":linear_5xx"
   end
 
+  test "Linear webhook queues failed start activity and still dispatches work" do
+    previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
+    on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)
+    System.put_env("LINEAR_WEBHOOK_SECRET", "secret")
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-linear-start-fail-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: $LINEAR_WEBHOOK_SECRET
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_activity_fun, fn session_id, run_id ->
+      send(parent, {:started_attempt, session_id, run_id})
+      {:error, :linear_5xx}
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_dispatch_fun, fn request ->
+      send(parent, {:dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        webhookTimestamp: System.system_time(:millisecond),
+        webhookId: "webhook-start-fail-1",
+        type: "AgentSessionEvent",
+        agentSession: %{
+          id: "session-start-fail-1",
+          issue: %{id: "issue-start-fail-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
+        }
+      })
+
+    signature = :crypto.mac(:hmac, :sha256, "secret", body) |> Base.encode16(case: :lower)
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("linear-signature", signature)
+      |> post("/webhooks/linear/agent", body)
+
+    assert %{"ok" => true, "run_id" => run_id} = json_response(conn, 202)
+    assert_receive {:started_attempt, "session-start-fail-1", ^run_id}, 1_000
+    assert_receive {:dispatch, ^run_id}, 1_000
+
+    external_id = "session-start-fail-1:started:#{run_id}"
+    assert_eventually_pending_write(db_path, run_id, external_id)
+
+    assert {:ok, [pending]} = RunLedger.list_pending_writes(db_path)
+    assert pending["external_id"] == external_id
+    assert Jason.decode!(pending["payload_json"])["type"] == "started"
+  end
+
   test "Linear webhook fails closed when enabled without webhook secret" do
     File.write!(
       Workflow.workflow_file_path(),

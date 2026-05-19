@@ -23,8 +23,11 @@ defmodule SymphonyElixir.Surfer.Linear.Session do
 
   @spec started(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def started(session_id, run_id, opts \\ []) do
-    create_activity(session_id, "thought", "Surfer started run #{run_id}.", opts)
+    create_activity(session_id, "thought", started_body(run_id), opts)
   end
+
+  @spec started_body(String.t()) :: String.t()
+  def started_body(run_id) when is_binary(run_id), do: "Surfer started run #{run_id}."
 
   @spec final_response(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def final_response(session_id, body, opts \\ []) do

@@ -364,12 +364,16 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     case post_linear_start_activity(request) do
       :ok ->
         emit_time_to_first_activity(request, started_at)
-        post_linear_run_external_url(request)
-        :ok
 
       {:error, reason} ->
-        {:error, reason}
+        record_pending_linear_started_write(request, reason)
+
+      other ->
+        record_pending_linear_started_write(request, {:unexpected_linear_started_result, other})
     end
+
+    post_linear_run_external_url(request)
+    :ok
   end
 
   defp post_linear_start_activity(%RunRequest{} = request) do
@@ -455,6 +459,38 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
       idempotency_hash: idempotency_hash(payload),
       payload: payload
     })
+  end
+
+  defp record_pending_linear_started_write(%RunRequest{} = request, reason) do
+    session_id = linear_lineage_value(request, :agent_session_id)
+
+    if is_binary(session_id) do
+      external_id = "#{session_id}:started:#{request.run_id}"
+
+      payload = %{
+        type: "started",
+        session_id: session_id,
+        run_id: request.run_id,
+        body: Session.started_body(request.run_id),
+        error: safe_inspect(reason)
+      }
+
+      Metrics.emit(:platform_write_failures, %{count: 1}, %{
+        run_id: request.run_id,
+        platform: "linear",
+        external_id: external_id,
+        reason: safe_inspect(reason)
+      })
+
+      record_pending_write(request.run_id, %{
+        platform: "linear",
+        external_id: external_id,
+        idempotency_hash: idempotency_hash(payload),
+        payload: payload
+      })
+    end
+
+    :ok
   end
 
   defp dispatch_linear_request(%RunRequest{} = request) do
@@ -613,8 +649,6 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
       {:error, reason} -> post_linear_error(request, reason)
     end
   end
-
-  defp dispatch_after_linear_started({:error, reason}, request), do: post_linear_error(request, reason)
 
   defp maybe_dispatch_discord(%{duplicate: true}, _request, _raw_message, _discord), do: :ok
 
