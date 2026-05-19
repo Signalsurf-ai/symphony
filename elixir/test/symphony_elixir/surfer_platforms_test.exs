@@ -110,6 +110,7 @@ defmodule SymphonyElixir.SurferPlatformsTest do
     issue = put_in(base, ["id"], "interaction-2") |> put_in(["data", "options"], [%{"name" => "issue", "type" => 1, "options" => [%{"name" => "prompt", "value" => "Fix routing"}]}])
     run = put_in(base, ["id"], "interaction-3") |> put_in(["data", "options"], [%{"name" => "run", "type" => 1, "options" => [%{"name" => "prompt", "value" => "Implement routing"}]}])
     cancel = put_in(base, ["id"], "interaction-4") |> put_in(["data", "options"], [%{"name" => "cancel", "type" => 1, "options" => [%{"name" => "run_id", "value" => "surf_run_1"}]}])
+    takeover = put_in(base, ["id"], "interaction-5") |> put_in(["data", "options"], [%{"name" => "takeover", "type" => 1, "options" => [%{"name" => "run_id", "value" => "surf_run_2"}]}])
 
     assert {:ok, ask_request} = Discord.Interaction.to_run_request(ask)
     assert ask_request.request.mode == :code_question
@@ -127,16 +128,21 @@ defmodule SymphonyElixir.SurferPlatformsTest do
     assert cancel_request.request.mode == :lifecycle_control
     assert cancel_request.request.action == :cancel
     assert cancel_request.request.run_id == "surf_run_1"
+
+    assert {:ok, takeover_request} = Discord.Interaction.to_run_request(takeover)
+    assert takeover_request.request.mode == :lifecycle_control
+    assert takeover_request.request.action == :takeover
+    assert takeover_request.request.run_id == "surf_run_2"
   end
 
   test "Discord command registration payload matches supported Surfer grammar" do
     command = Discord.Commands.application_command()
 
     assert %{name: "surfer", type: 1, options: options} = command
-    assert Enum.map(options, & &1.name) == ["ask", "issue", "run", "cancel", "retry"]
+    assert Enum.map(options, & &1.name) == ["ask", "issue", "run", "cancel", "retry", "takeover"]
 
     prompt_commands = Enum.filter(options, &(&1.name in ["ask", "issue", "run"]))
-    lifecycle_commands = Enum.filter(options, &(&1.name in ["cancel", "retry"]))
+    lifecycle_commands = Enum.filter(options, &(&1.name in ["cancel", "retry", "takeover"]))
 
     assert Enum.all?(prompt_commands, fn subcommand ->
              assert [%{name: "prompt", type: 3, required: true}] = subcommand.options

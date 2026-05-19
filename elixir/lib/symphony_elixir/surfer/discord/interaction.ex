@@ -94,7 +94,7 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
   end
 
   defp parse_command_options([%{"type" => 1, "name" => name, "options" => options} | _])
-       when name in ["ask", "issue", "run", "cancel", "retry"] do
+       when name in ["ask", "issue", "run", "cancel", "retry", "takeover"] do
     %{
       name: name,
       prompt: option_value(options, "prompt") || option_value(options, "request"),
@@ -103,7 +103,7 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
   end
 
   defp parse_command_options([%{type: 1, name: name, options: options} | _])
-       when name in ["ask", "issue", "run", "cancel", "retry"] do
+       when name in ["ask", "issue", "run", "cancel", "retry", "takeover"] do
     %{
       name: name,
       prompt: option_value(options, "prompt") || option_value(options, "request"),
@@ -131,7 +131,7 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
     put_request(request, :durable_task, :slash_command, prompt || "")
   end
 
-  defp apply_command(request, %{name: action, run_id: run_id}) when action in ["cancel", "retry"] do
+  defp apply_command(request, %{name: action, run_id: run_id}) when action in ["cancel", "retry", "takeover"] do
     %{
       request
       | request:

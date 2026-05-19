@@ -3571,6 +3571,90 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert_eventually_run_status(db_path, command_run_id, "completed")
   end
 
+  test "Discord takeover command marks a running run awaiting review without dispatching new work" do
+    {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
+
+    on_exit(fn -> restore_env("DISCORD_PUBLIC_KEY", previous_public_key) end)
+    System.put_env("DISCORD_PUBLIC_KEY", Base.encode16(public_key, case: :lower))
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-takeover-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            public_key: $DISCORD_PUBLIC_KEY
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert :ok = RunLedger.initialize(db_path)
+    target_run_id = "surf_run_takeover_target"
+
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-takeover-target",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer implement routing"
+             })
+
+    request = %{request | run_id: target_run_id}
+    assert {:ok, %{status: :claimed}} = RunLedger.claim_run(db_path, "takeover-target-key", request, platform: :discord)
+    assert :ok = RunLedger.update_status(db_path, target_run_id, "running")
+
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_response_fun, fn _application_id, _token, body ->
+      send(parent, {:interaction_response, body})
+      :ok
+    end)
+
+    command_body =
+      Jason.encode!(%{
+        id: "interaction-takeover-1",
+        application_id: "app-1",
+        token: "takeover-token",
+        type: 2,
+        guild_id: "guild-1",
+        channel_id: "channel-1",
+        member: %{user: %{id: "takeover-user-1"}},
+        data: %{name: "surfer", options: [%{name: "takeover", type: 1, options: [%{name: "run_id", type: 3, value: target_run_id}]}]}
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_signature_headers(command_body, private_key)
+      |> post("/webhooks/discord/interactions", command_body)
+
+    assert json_response(conn, 200)["type"] == 5
+    assert_interaction_response_contains("taken over")
+    refute_receive {:unexpected_dispatch, _run_id}, 200
+    assert {:ok, %{"status" => "awaiting_review"}} = RunLedger.get_run(db_path, target_run_id)
+    assert {:ok, command_run_id} = RunLedger.lookup_idempotency_key(db_path, "discord_interaction:interaction-takeover-1:lifecycle_control")
+    assert_eventually_run_status(db_path, command_run_id, "completed")
+  end
+
   test "Linear ingress marks a run failed when the daily budget cap is exhausted" do
     previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
 

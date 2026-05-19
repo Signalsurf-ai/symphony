@@ -928,6 +928,14 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     end
   end
 
+  defp handle_lifecycle_control(%RunRequest{request: %{action: :takeover, run_id: run_id}}) when is_binary(run_id) do
+    with {:ok, db_path} <- surfer_ledger_path(),
+         :ok <- Lifecycle.takeover(db_path, run_id, actor: "discord", reason: "taken over from Discord"),
+         :ok <- stop_active_run_for_takeover(run_id, actor: "discord", reason: "taken over from Discord") do
+      {:ok, "Surfer run #{run_id} taken over for human review."}
+    end
+  end
+
   defp handle_lifecycle_control(_request), do: {:error, :unsupported_lifecycle_control}
 
   defp record_lifecycle_control_status(run_id, status, reason) when is_binary(run_id) and is_binary(status) do

@@ -19,7 +19,8 @@ defmodule SymphonyElixir.Surfer.Discord.Commands do
 
   @lifecycle_commands [
     {"cancel", "Request cancellation for a Surfer run."},
-    {"retry", "Request a new linked run after failure."}
+    {"retry", "Request a new linked run after failure."},
+    {"takeover", "Mark a Surfer run for human takeover."}
   ]
 
   @spec application_command() :: map()

@@ -134,7 +134,7 @@ notification webhook contract instead of re-enabling project polling as the defa
 - Discord REST helper errors redact bot-token and interaction-token shaped values before returning
   to callers; completion, fallback, and error notification failures are recorded as retryable
   pending writes without storing interaction tokens.
-- Discord lifecycle controls for `cancel` and `retry` against locally-ledgered runs.
+- Discord lifecycle controls for `cancel`, `retry`, and `takeover` against locally-ledgered runs.
 - Deterministic repository routing from PRD-shaped `key`/`repo` repository config, explicit
   `repository_key`, Linear team IDs, Discord channel IDs, or a single configured fallback.
   Linear and Discord ingress apply this routing before dispatch; ambiguous routing is recorded as
