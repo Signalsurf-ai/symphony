@@ -96,6 +96,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
         {:error, {:unsupported_linear_agent_action, action}} ->
           error_response(conn, 400, "unsupported_linear_agent_action", "Unsupported Linear agent session action: #{safe_inspect(action)}")
 
+        {:error, {:unsupported_linear_event_type, type}} ->
+          error_response(conn, 400, "unsupported_linear_event_type", "Unsupported Linear event type: #{safe_inspect(type)}")
+
         {:error, reason} ->
           error_response(conn, 500, "surfer_dispatch_failed", safe_inspect(reason))
       end

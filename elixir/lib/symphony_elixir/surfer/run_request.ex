@@ -37,7 +37,8 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   def from_linear_agent_session_event(payload) when is_map(payload) do
     action = Map.get(payload, "action", "created")
 
-    with :ok <- validate_linear_agent_session_action(action) do
+    with :ok <- validate_linear_event_type(Map.get(payload, "type")),
+         :ok <- validate_linear_agent_session_action(action) do
       session = Map.get(payload, "agentSession", %{})
       issue_payload = Map.get(session, "issue", %{})
       comment = Map.get(session, "comment", %{})
@@ -223,6 +224,10 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   end
 
   defp sanitize_prompt_context(_value), do: nil
+
+  defp validate_linear_event_type(nil), do: :ok
+  defp validate_linear_event_type("AgentSessionEvent"), do: :ok
+  defp validate_linear_event_type(type), do: {:error, {:unsupported_linear_event_type, type}}
 
   defp validate_linear_agent_session_action(action) when action in @linear_agent_session_actions, do: :ok
 

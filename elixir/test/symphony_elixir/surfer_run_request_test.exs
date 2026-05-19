@@ -142,6 +142,21 @@ defmodule SymphonyElixir.SurferRunRequestTest do
              RunRequest.from_linear_agent_session_event(payload)
   end
 
+  test "rejects explicit non-AgentSessionEvent Linear payload types" do
+    payload = %{
+      "type" => "Issue",
+      "action" => "created",
+      "webhookId" => "delivery-unsupported-type",
+      "agentSession" => %{
+        "id" => "session-unsupported-type",
+        "issue" => %{"id" => "issue-1", "identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}}
+      }
+    }
+
+    assert {:error, {:unsupported_linear_event_type, "Issue"}} =
+             RunRequest.from_linear_agent_session_event(payload)
+  end
+
   test "deduplicates Discord events by interaction or message without retaining bearer tokens" do
     interaction = %{
       "id" => "interaction-1",
