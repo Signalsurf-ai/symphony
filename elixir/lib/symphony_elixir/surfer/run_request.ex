@@ -97,41 +97,42 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   def from_discord_message(message) when is_map(message) do
     content = Map.get(message, "content", "")
     mode = discord_request_mode(content)
-    natural_event_key = discord_message_natural_event_key(message, mode)
 
-    {:ok,
-     %__MODULE__{
-       run_id: new_run_id(),
-       source: %{
-         platform: :discord,
-         trigger_type: :message,
-         raw_event_id: Map.get(message, "id"),
-         natural_event_key: natural_event_key
-       },
-       request: %{
-         mode: mode,
-         trigger_type: :message,
-         title: discord_title(content, mode),
-         body: content,
-         prompt_context: content,
-         requested_by: get_in(message, ["author", "id"])
-       },
-       lineage: %{
-         linear: %{},
-         discord: %{
-           guild_id: Map.get(message, "guild_id"),
-           channel_id: Map.get(message, "channel_id"),
-           thread_id: Map.get(message, "thread_id"),
-           message_id: Map.get(message, "id")
+    with {:ok, natural_event_key} <- discord_message_natural_event_key(message, mode) do
+      {:ok,
+       %__MODULE__{
+         run_id: new_run_id(),
+         source: %{
+           platform: :discord,
+           trigger_type: :message,
+           raw_event_id: Map.get(message, "id"),
+           natural_event_key: natural_event_key
          },
-         github: %{}
-       },
-       routing: %{},
-       context: %{prompt_context: content, company_brain_refs: []},
-       constraints: constraints_for(mode, :discord),
-       issue: nil,
-       organization_id: nil
-     }}
+         request: %{
+           mode: mode,
+           trigger_type: :message,
+           title: discord_title(content, mode),
+           body: content,
+           prompt_context: content,
+           requested_by: get_in(message, ["author", "id"])
+         },
+         lineage: %{
+           linear: %{},
+           discord: %{
+             guild_id: Map.get(message, "guild_id"),
+             channel_id: Map.get(message, "channel_id"),
+             thread_id: Map.get(message, "thread_id"),
+             message_id: Map.get(message, "id")
+           },
+           github: %{}
+         },
+         routing: %{},
+         context: %{prompt_context: content, company_brain_refs: []},
+         constraints: constraints_for(mode, :discord),
+         issue: nil,
+         organization_id: nil
+       }}
+    end
   end
 
   @spec constraints_for(atom() | String.t()) :: map()
@@ -286,29 +287,29 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   end
 
   defp discord_message_natural_event_key(message, mode) do
-    guild_id = Map.get(message, "guild_id") || "unknown_guild"
-    channel_id = Map.get(message, "channel_id") || "unknown_channel"
-    message_id = Map.get(message, "id") || "unknown_message"
-
-    Enum.map_join(["discord_message", guild_id, channel_id, message_id, mode], ":", &to_string/1)
+    with {:ok, guild_id} <- required_key_part(Map.get(message, "guild_id"), :missing_discord_guild_id),
+         {:ok, channel_id} <- required_key_part(Map.get(message, "channel_id"), :missing_discord_channel_id),
+         {:ok, message_id} <- required_key_part(Map.get(message, "id"), :missing_discord_message_id) do
+      {:ok, Enum.map_join(["discord_message", guild_id, channel_id, message_id, mode], ":", &to_string/1)}
+    end
   end
 
   defp linear_natural_event_key(session, "prompted", _comment, agent_activity, _issue, mode) do
-    with {:ok, session_id} <- required_linear_key_part(Map.get(session, "id"), :missing_linear_agent_session_id),
-         {:ok, activity_id} <- required_linear_key_part(Map.get(agent_activity, "id"), :missing_linear_agent_activity_id) do
+    with {:ok, session_id} <- required_key_part(Map.get(session, "id"), :missing_linear_agent_session_id),
+         {:ok, activity_id} <- required_key_part(Map.get(agent_activity, "id"), :missing_linear_agent_activity_id) do
       {:ok, Enum.map_join(["linear", session_id, "prompted", activity_id, mode], ":", &to_string/1)}
     end
   end
 
   defp linear_natural_event_key(session, action, comment, _agent_activity, issue, mode) do
-    with {:ok, session_id} <- required_linear_key_part(Map.get(session, "id"), :missing_linear_agent_session_id),
-         {:ok, subject_id} <- required_linear_key_part(Map.get(comment, "id") || issue.id, :missing_linear_issue_or_comment_id) do
+    with {:ok, session_id} <- required_key_part(Map.get(session, "id"), :missing_linear_agent_session_id),
+         {:ok, subject_id} <- required_key_part(Map.get(comment, "id") || issue.id, :missing_linear_issue_or_comment_id) do
       {:ok, Enum.map_join(["linear", session_id, action || "created", subject_id, mode], ":", &to_string/1)}
     end
   end
 
-  defp required_linear_key_part(value, _reason) when is_binary(value) and value != "", do: {:ok, value}
-  defp required_linear_key_part(_value, reason), do: {:error, reason}
+  defp required_key_part(value, _reason) when is_binary(value) and value != "", do: {:ok, value}
+  defp required_key_part(_value, reason), do: {:error, reason}
 
   defp discord_title(content, :issue_create), do: content |> strip_command_prefix() |> blank_to_default("Discord request")
   defp discord_title(content, _mode), do: content |> String.trim() |> blank_to_default("Discord request")

@@ -229,6 +229,45 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert RunRequest.idempotency_key(message) == "discord_message:guild-1:channel-1:message-1:code_question"
   end
 
+  test "rejects Discord payloads missing required natural-key components" do
+    assert {:error, :missing_discord_message_id} =
+             RunRequest.from_discord_message(%{
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    assert {:error, :missing_discord_guild_id} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    assert {:error, :missing_discord_channel_id} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-1",
+               "guild_id" => "guild-1",
+               "content" => "surfer question"
+             })
+
+    interaction = %{
+      "application_id" => "app-1",
+      "type" => 2,
+      "guild_id" => "guild-1",
+      "channel_id" => "channel-1",
+      "member" => %{"user" => %{"id" => "user-1"}},
+      "data" => %{
+        "name" => "surfer",
+        "options" => [
+          %{"name" => "prompt", "type" => 3, "value" => "where is routing handled?"}
+        ]
+      }
+    }
+
+    assert {:error, :missing_discord_interaction_id} = Interaction.to_run_request(interaction)
+  end
+
   test "routes requests deterministically and fails visibly on ambiguous repositories" do
     assert {:ok, request} =
              RunRequest.from_discord_message(%{

@@ -19,14 +19,14 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
   def to_run_request(%{"type" => @application_command} = interaction, opts) do
     allowed_guilds = Keyword.get(opts, :allowed_guilds, [])
     allowed_channels = Keyword.get(opts, :allowed_channels, [])
+    command = command(interaction)
 
     with :ok <- authorize("guild", Map.get(interaction, "guild_id"), allowed_guilds),
-         :ok <- authorize("channel", Map.get(interaction, "channel_id"), allowed_channels) do
-      command = command(interaction)
-      {:ok, request} = interaction |> interaction_message(command) |> RunRequest.from_discord_message()
+         :ok <- authorize("channel", Map.get(interaction, "channel_id"), allowed_channels),
+         {:ok, interaction_id} <- required_interaction_id(Map.get(interaction, "id")),
+         {:ok, request} <- interaction |> interaction_message(command) |> RunRequest.from_discord_message() do
       request = apply_command(request, command)
       request = put_in(request.request[:trigger_type], :slash_command)
-      interaction_id = Map.get(interaction, "id")
 
       {:ok,
        %{
@@ -65,6 +65,9 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
   defp unauthorized("guild", id), do: {:error, {:unauthorized_guild, id}}
   defp unauthorized("channel", id), do: {:error, {:unauthorized_channel, id}}
 
+  defp required_interaction_id(value) when is_binary(value) and value != "", do: {:ok, value}
+  defp required_interaction_id(_value), do: {:error, :missing_discord_interaction_id}
+
   defp interaction_message(interaction, command) do
     %{
       "id" => Map.get(interaction, "id"),
@@ -77,7 +80,7 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
   end
 
   defp interaction_natural_event_key(interaction_id, mode) do
-    Enum.map_join(["discord_interaction", interaction_id || "unknown_interaction", mode], ":", &to_string/1)
+    Enum.map_join(["discord_interaction", interaction_id, mode], ":", &to_string/1)
   end
 
   defp user_id(interaction) do

@@ -157,6 +157,15 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
         {:error, {:unauthorized_channel, _channel_id}} ->
           error_response(conn, 403, "unauthorized_channel", "Discord channel is not allowed")
+
+        {:error, :missing_discord_message_id} ->
+          error_response(conn, 400, "missing_discord_message_id", "Discord message id is required")
+
+        {:error, :missing_discord_guild_id} ->
+          error_response(conn, 400, "missing_discord_guild_id", "Discord guild id is required")
+
+        {:error, :missing_discord_channel_id} ->
+          error_response(conn, 400, "missing_discord_channel_id", "Discord channel id is required")
       end
 
     emit_webhook_ack(:discord, path, started_at, response_conn)
@@ -367,6 +376,18 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
       {:error, {:unauthorized_channel, _channel_id}} ->
         error_response(conn, 403, "unauthorized_channel", "Discord channel is not allowed")
+
+      {:error, :missing_discord_interaction_id} ->
+        error_response(conn, 400, "missing_discord_interaction_id", "Discord interaction id is required")
+
+      {:error, :missing_discord_message_id} ->
+        error_response(conn, 400, "missing_discord_message_id", "Discord message id is required")
+
+      {:error, :missing_discord_guild_id} ->
+        error_response(conn, 400, "missing_discord_guild_id", "Discord guild id is required")
+
+      {:error, :missing_discord_channel_id} ->
+        error_response(conn, 400, "missing_discord_channel_id", "Discord channel id is required")
 
       {:error, reason} ->
         error_response(conn, 400, "unsupported_discord_interaction", safe_inspect(reason))

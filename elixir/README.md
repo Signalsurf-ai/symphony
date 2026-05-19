@@ -103,6 +103,8 @@ and is disabled in the Surfer workflow example.
 - Discord message ingress at `/webhooks/discord/message` for gateway adapters or internal relays,
   with `surfer.platforms.discord.message_ingress_path` and the same configured guild/channel
   allowlists enforced before dispatch.
+- Discord idempotency keys require real interaction IDs, or real guild/channel/message IDs for
+  message-relay ingress.
 - Discord-to-Linear issue creation through Linear `issueCreate`.
 - Discord durable `run` requests create a Linear issue and persist the Linear issue link before
   dispatching long-running Codex work.
