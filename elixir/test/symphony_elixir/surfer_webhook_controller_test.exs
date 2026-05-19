@@ -1869,6 +1869,106 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute run["payload_json"] =~ "interaction-token-secret"
   end
 
+  test "Discord interaction response retry window is anchored to interaction receipt" do
+    {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
+    previous_bot_token = System.get_env("DISCORD_BOT_TOKEN")
+
+    on_exit(fn ->
+      restore_env("DISCORD_PUBLIC_KEY", previous_public_key)
+      restore_env("DISCORD_BOT_TOKEN", previous_bot_token)
+    end)
+
+    System.put_env("DISCORD_PUBLIC_KEY", Base.encode16(public_key, case: :lower))
+    System.put_env("DISCORD_BOT_TOKEN", "bot-token")
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-followup-deadline-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            public_key: $DISCORD_PUBLIC_KEY
+            bot_token: $DISCORD_BOT_TOKEN
+            allowed_guilds:
+              - guild-1
+            allowed_channels:
+              - channel-1
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_retry_backoff_ms, 10)
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_retry_window_ms, 25)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:discord_dispatch_blocked, self(), request.run_id})
+
+      receive do
+        :release_discord_dispatch -> :ok
+      after
+        1_000 -> {:error, :dispatch_timeout}
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_response_fun, fn application_id, token, body ->
+      send(parent, {:interaction_response_attempt, application_id, token, body})
+      {:error, :discord_5xx}
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_post_fun, fn channel_id, body ->
+      send(parent, {:channel_fallback, channel_id, body})
+      :ok
+    end)
+
+    command_body =
+      Jason.encode!(%{
+        id: "interaction-followup-deadline-1",
+        application_id: "app-1",
+        token: "interaction-token-secret",
+        type: 2,
+        guild_id: "guild-1",
+        channel_id: "channel-1",
+        member: %{user: %{id: "followup-deadline-user-1"}},
+        data: %{
+          name: "surfer",
+          options: [%{name: "ask", type: 1, options: [%{name: "prompt", type: 3, value: "where is routing handled?"}]}]
+        }
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_signature_headers(command_body, private_key)
+      |> post("/webhooks/discord/interactions", command_body)
+
+    assert json_response(conn, 200)["type"] == 5
+    assert_receive {:discord_dispatch_blocked, task_pid, run_id}
+    Process.sleep(40)
+    send(task_pid, :release_discord_dispatch)
+
+    assert_receive {:interaction_response_attempt, "app-1", "interaction-token-secret", body}
+    refute_receive {:interaction_response_attempt, "app-1", "interaction-token-secret", ^body}, 30
+    assert_receive {:channel_fallback, "channel-1", ^body}
+
+    assert {:ok, run} = RunLedger.get_run(db_path, run_id)
+    refute run["payload_json"] =~ "interaction-token-secret"
+  end
+
   test "Discord interaction fallback channel failure queues pending write without storing token" do
     {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
     previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")

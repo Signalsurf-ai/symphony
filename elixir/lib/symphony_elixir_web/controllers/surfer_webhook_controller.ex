@@ -30,6 +30,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   @default_discord_message_path "/webhooks/discord/message"
   @default_discord_interactions_path "/webhooks/discord/interactions"
   @task_ledger_path_key {__MODULE__, :surfer_ledger_path}
+  @discord_interaction_retry_deadline_key "__surfer_interaction_retry_deadline_ms"
   @discord_interaction_response_retry_backoff_ms 1_000
   @discord_interaction_token_window_ms 15 * 60 * 1_000
 
@@ -160,7 +161,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     response_conn =
       with :ok <- require_configured_path(conn, path),
            :ok <- require_secret(discord.enabled, public_keys, :missing_discord_public_key) do
-        verify_discord_interaction(conn, params, raw_body, signature, timestamp, discord, public_keys)
+        verify_discord_interaction(conn, params, raw_body, signature, timestamp, discord, public_keys, started_at)
       else
         {:error, :unconfigured_webhook_path} ->
           not_found_response(conn)
@@ -290,13 +291,13 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     end
   end
 
-  defp verify_discord_interaction(conn, params, raw_body, signature, timestamp, discord, public_keys) do
+  defp verify_discord_interaction(conn, params, raw_body, signature, timestamp, discord, public_keys, received_at_ms) do
     case Discord.Webhook.verify(raw_body, signature, timestamp, public_keys, max_age_seconds: discord.signature_max_age_seconds) do
       :ok ->
         if Discord.Interaction.ping?(params) do
           json(conn, %{type: 1})
         else
-          handle_discord_interaction(conn, params, discord)
+          handle_discord_interaction(conn, params, discord, received_at_ms)
         end
 
       {:error, :missing_signature} ->
@@ -324,14 +325,16 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     end
   end
 
-  defp handle_discord_interaction(conn, params, discord) do
+  defp handle_discord_interaction(conn, params, discord, received_at_ms) do
     case Discord.Interaction.to_run_request(params,
            allowed_guilds: discord.allowed_guilds,
            allowed_channels: discord.allowed_channels
          ) do
       {:ok, request} ->
+        raw_message = put_discord_interaction_retry_deadline(params, received_at_ms)
+
         with {:ok, response} <- claim_run(request, :discord),
-             :ok <- maybe_dispatch_discord(response, request, params, discord) do
+             :ok <- maybe_dispatch_discord(response, request, raw_message, discord) do
           json(conn, %{type: 5})
         else
           {:error, :rate_limited} ->
@@ -1001,7 +1004,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
            application_id,
            token,
            body,
-           discord_interaction_retry_deadline_ms()
+           discord_interaction_retry_deadline_ms(raw_message)
          ) do
       :ok ->
         :ok
@@ -1045,8 +1048,19 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     end
   end
 
-  defp discord_interaction_retry_deadline_ms do
-    System.monotonic_time(:millisecond) +
+  defp put_discord_interaction_retry_deadline(raw_message, received_at_ms) when is_map(raw_message) and is_integer(received_at_ms) do
+    Map.put(raw_message, @discord_interaction_retry_deadline_key, discord_interaction_retry_deadline_ms(received_at_ms))
+  end
+
+  defp discord_interaction_retry_deadline_ms(%{} = raw_message) do
+    case Map.get(raw_message, @discord_interaction_retry_deadline_key) do
+      deadline_ms when is_integer(deadline_ms) -> deadline_ms
+      _value -> discord_interaction_retry_deadline_ms(System.monotonic_time(:millisecond))
+    end
+  end
+
+  defp discord_interaction_retry_deadline_ms(received_at_ms) when is_integer(received_at_ms) do
+    received_at_ms +
       Application.get_env(
         :symphony_elixir,
         :surfer_discord_interaction_retry_window_ms,
