@@ -747,6 +747,63 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute_receive {:unexpected_dispatch, _run_id}, 100
   end
 
+  test "Linear webhook rejects unsupported agent session actions without dispatching" do
+    previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
+    on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)
+    System.put_env("LINEAR_WEBHOOK_SECRET", "secret")
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: $LINEAR_WEBHOOK_SECRET
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_activity_fun, fn session_id, run_id ->
+      send(parent, {:unexpected_started, session_id, run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        webhookTimestamp: System.system_time(:millisecond),
+        webhookId: "webhook-unsupported-action",
+        type: "AgentSessionEvent",
+        action: "archived",
+        agentSession: %{
+          id: "session-unsupported-action",
+          issue: %{id: "issue-unsupported-action", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
+        }
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("linear-signature", linear_signature(body, "secret"))
+      |> post("/webhooks/linear/agent", body)
+
+    assert json_response(conn, 400)["error"]["code"] == "unsupported_linear_agent_action"
+    refute_receive {:unexpected_started, _session_id, _run_id}, 100
+    refute_receive {:unexpected_dispatch, _run_id}, 100
+  end
+
   test "Linear webhook returns 503 and emits ledger claim failure after bounded transient retry" do
     previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
     on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)

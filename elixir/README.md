@@ -77,6 +77,8 @@ and is disabled in the Surfer workflow example.
 - Linear `AgentSessionEvent` HTTP ingress at `/webhooks/linear/agent` by default, with
   `surfer.platforms.linear.webhook_path` enforced when configured.
 - Linear raw-body HMAC verification using `LINEAR_WEBHOOK_SECRET`.
+- Linear `AgentSessionEvent` action handling accepts `created` and `prompted`; unsupported
+  actions return `400` without dispatch.
 - Surfer v0.1 deployment defaults disable the legacy Symphony Linear project poller with
   `polling.enabled: false`; direct webhook dispatch remains available.
 - Enabled Linear, Discord, and GitHub config fails closed at application startup when required

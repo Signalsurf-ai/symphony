@@ -7,6 +7,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
 
   @prompt_context_max_chars 4_000
   @redacted "[REDACTED]"
+  @linear_agent_session_actions ~w(created prompted)
 
   defstruct [
     :run_id,
@@ -35,54 +36,57 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   @spec from_linear_agent_session_event(map()) :: {:ok, t()} | {:error, term()}
   def from_linear_agent_session_event(payload) when is_map(payload) do
     action = Map.get(payload, "action", "created")
-    session = Map.get(payload, "agentSession", %{})
-    issue_payload = Map.get(session, "issue", %{})
-    comment = Map.get(session, "comment", %{})
-    agent_activity = Map.get(session, "agentActivity") || Map.get(payload, "agentActivity") || %{}
-    issue = linear_issue(issue_payload)
-    request_mode = :durable_task
-    natural_event_key = linear_natural_event_key(session, action, comment, agent_activity, issue, request_mode)
-    prompt_context = Map.get(session, "promptContext")
 
-    {:ok,
-     %__MODULE__{
-       run_id: new_run_id(),
-       source: %{
-         platform: :linear,
-         trigger_type: :delegation,
-         raw_event_id: Map.get(payload, "webhookId"),
-         action: action,
-         natural_event_key: natural_event_key
-       },
-       request: %{
-         mode: request_mode,
-         trigger_type: :delegation,
-         title: issue.title,
-         body: issue.description || Map.get(comment, "body"),
-         prompt_context: prompt_context,
-         requested_by: nil
-       },
-       lineage: %{
-         linear: %{
-           issue_id: issue.id,
-           issue_identifier: issue.identifier,
-           team_id: get_in(issue_payload, ["team", "id"]),
-           agent_session_id: Map.get(session, "id"),
-           comment_id: Map.get(comment, "id"),
-           agent_activity_id: Map.get(agent_activity, "id")
+    with :ok <- validate_linear_agent_session_action(action) do
+      session = Map.get(payload, "agentSession", %{})
+      issue_payload = Map.get(session, "issue", %{})
+      comment = Map.get(session, "comment", %{})
+      agent_activity = Map.get(session, "agentActivity") || Map.get(payload, "agentActivity") || %{}
+      issue = linear_issue(issue_payload)
+      request_mode = :durable_task
+      natural_event_key = linear_natural_event_key(session, action, comment, agent_activity, issue, request_mode)
+      prompt_context = Map.get(session, "promptContext")
+
+      {:ok,
+       %__MODULE__{
+         run_id: new_run_id(),
+         source: %{
+           platform: :linear,
+           trigger_type: :delegation,
+           raw_event_id: Map.get(payload, "webhookId"),
+           action: action,
+           natural_event_key: natural_event_key
          },
-         discord: %{},
-         github: %{}
-       },
-       routing: %{},
-       context: %{
-         prompt_context: prompt_context,
-         company_brain_refs: []
-       },
-       constraints: constraints_for(request_mode, :linear),
-       issue: issue,
-       organization_id: Map.get(payload, "organizationId")
-     }}
+         request: %{
+           mode: request_mode,
+           trigger_type: :delegation,
+           title: issue.title,
+           body: issue.description || Map.get(comment, "body"),
+           prompt_context: prompt_context,
+           requested_by: nil
+         },
+         lineage: %{
+           linear: %{
+             issue_id: issue.id,
+             issue_identifier: issue.identifier,
+             team_id: get_in(issue_payload, ["team", "id"]),
+             agent_session_id: Map.get(session, "id"),
+             comment_id: Map.get(comment, "id"),
+             agent_activity_id: Map.get(agent_activity, "id")
+           },
+           discord: %{},
+           github: %{}
+         },
+         routing: %{},
+         context: %{
+           prompt_context: prompt_context,
+           company_brain_refs: []
+         },
+         constraints: constraints_for(request_mode, :linear),
+         issue: issue,
+         organization_id: Map.get(payload, "organizationId")
+       }}
+    end
   end
 
   @spec from_discord_message(map()) :: {:ok, t()} | {:error, term()}
@@ -219,6 +223,10 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   end
 
   defp sanitize_prompt_context(_value), do: nil
+
+  defp validate_linear_agent_session_action(action) when action in @linear_agent_session_actions, do: :ok
+
+  defp validate_linear_agent_session_action(action), do: {:error, {:unsupported_linear_agent_action, action}}
 
   defp redact_prompt_context(value) do
     value

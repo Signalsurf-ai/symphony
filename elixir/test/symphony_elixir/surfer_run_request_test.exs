@@ -128,6 +128,20 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert RunRequest.idempotency_key(prompted) == "linear:session-1:prompted:activity-1:durable_task"
   end
 
+  test "rejects unsupported Linear AgentSessionEvent actions" do
+    payload = %{
+      "action" => "archived",
+      "webhookId" => "delivery-unsupported",
+      "agentSession" => %{
+        "id" => "session-unsupported",
+        "issue" => %{"id" => "issue-1", "identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}}
+      }
+    }
+
+    assert {:error, {:unsupported_linear_agent_action, "archived"}} =
+             RunRequest.from_linear_agent_session_event(payload)
+  end
+
   test "deduplicates Discord events by interaction or message without retaining bearer tokens" do
     interaction = %{
       "id" => "interaction-1",

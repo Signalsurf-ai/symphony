@@ -93,6 +93,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
         {:error, {:ledger_claim_failed, reason}} ->
           error_response(conn, 503, "ledger_claim_failed", "Surfer run ledger claim failed: #{safe_inspect(reason)}")
 
+        {:error, {:unsupported_linear_agent_action, action}} ->
+          error_response(conn, 400, "unsupported_linear_agent_action", "Unsupported Linear agent session action: #{safe_inspect(action)}")
+
         {:error, reason} ->
           error_response(conn, 500, "surfer_dispatch_failed", safe_inspect(reason))
       end
