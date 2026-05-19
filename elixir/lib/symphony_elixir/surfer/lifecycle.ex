@@ -10,6 +10,11 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
   alias SymphonyElixir.Surfer.Linear.Session
   alias SymphonyElixir.Surfer.{Metrics, RunLedger, RunRequest, SecretRedactor}
 
+  @linear_lineage_keys ~w(issue_id issue_identifier team_id agent_session_id comment_id agent_activity_id)
+  @discord_lineage_keys ~w(guild_id channel_id thread_id message_id interaction_id application_id)
+  @github_lineage_keys ~w(repo pull_request_number)
+  @routing_keys ~w(repository repository_key repository_full_name repository_url checkout_path workflow_path branch_hint confidence reason company_brain_paths)
+
   @spec cancel(Path.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def cancel(db_path, run_id, opts \\ []) when is_binary(run_id) do
     reason = Keyword.get(opts, :reason, "cancelled by operator")
@@ -467,11 +472,13 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
     previous_run_id = previous["id"]
     nonce = Keyword.get(opts, :nonce) || System.unique_integer([:positive])
     actor = Keyword.get(opts, :actor, "operator")
+    previous_context = previous_context(previous)
+    source_platform = retry_source_platform(previous_context, previous, opts)
 
     %RunRequest{
       run_id: "surf_run_retry_" <> (:crypto.strong_rand_bytes(8) |> Base.url_encode64(padding: false)),
       source: %{
-        platform: :operator,
+        platform: source_platform,
         trigger_type: :retry,
         raw_event_id: previous_run_id,
         natural_event_key: "operator_retry:#{previous_run_id}:#{nonce}"
@@ -485,20 +492,82 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
         requested_by: actor
       },
       lineage: %{
-        linear: %{},
-        discord: %{},
-        github: %{}
+        linear: known_context_map(context_value(previous_context, :linear), @linear_lineage_keys),
+        discord: known_context_map(context_value(previous_context, :discord), @discord_lineage_keys),
+        github: known_context_map(context_value(previous_context, :github), @github_lineage_keys)
       },
-      routing: %{
-        repository: previous["repository"]
-      },
+      routing: retry_routing(previous_context, previous),
       context: %{
-        prompt_context: nil,
-        company_brain_refs: []
+        prompt_context: context_value(previous_context, :prompt_context),
+        company_brain_refs: context_value(previous_context, :company_brain_refs) || []
       },
-      constraints: RunRequest.constraints_for(:durable_task, :operator),
+      constraints: RunRequest.constraints_for(:durable_task, source_platform),
       issue: nil,
       organization_id: nil
     }
+  end
+
+  defp previous_context(%{"payload_json" => payload}) when is_binary(payload) do
+    case Jason.decode(payload) do
+      {:ok, context} when is_map(context) -> context
+      _ -> %{}
+    end
+  end
+
+  defp previous_context(_previous), do: %{}
+
+  defp retry_source_platform(previous_context, previous, opts) do
+    opts
+    |> Keyword.get(:source_platform)
+    |> normalize_source_platform()
+    |> case do
+      nil ->
+        previous_context
+        |> context_value(:source_platform)
+        |> Kernel.||(Map.get(previous, "source_platform"))
+        |> normalize_source_platform()
+        |> Kernel.||(:operator)
+
+      platform ->
+        platform
+    end
+  end
+
+  defp normalize_source_platform(platform) when platform in [:linear, :discord, :github, :operator], do: platform
+  defp normalize_source_platform("linear"), do: :linear
+  defp normalize_source_platform("discord"), do: :discord
+  defp normalize_source_platform("github"), do: :github
+  defp normalize_source_platform("operator"), do: :operator
+  defp normalize_source_platform(_platform), do: nil
+
+  defp retry_routing(previous_context, previous) do
+    previous_context
+    |> context_value(:routing)
+    |> known_context_map(@routing_keys)
+    |> maybe_put_previous_repository(previous)
+  end
+
+  defp maybe_put_previous_repository(routing, %{"repository" => repository})
+       when is_binary(repository) and repository != "" do
+    Map.put_new(routing, :repository, repository)
+  end
+
+  defp maybe_put_previous_repository(routing, _previous), do: routing
+
+  defp known_context_map(context, keys) when is_map(context) do
+    Enum.reduce(keys, %{}, fn key, acc ->
+      atom_key = String.to_atom(key)
+
+      case Map.get(context, key) || Map.get(context, atom_key) do
+        nil -> acc
+        value -> Map.put(acc, atom_key, value)
+      end
+    end)
+  end
+
+  defp known_context_map(_context, _keys), do: %{}
+
+  defp context_value(context, key) when is_map(context) do
+    Map.get(context, key) || Map.get(context, to_string(key))
   end
 end

@@ -119,7 +119,18 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert retry.previous_run_id == request.run_id
     assert retry.run_id != request.run_id
     assert {:ok, %{"status" => "failed"}} = RunLedger.get_run(db_path, request.run_id)
-    assert {:ok, %{"status" => "queued"}} = RunLedger.get_run(db_path, retry.run_id)
+    assert {:ok, retry_run} = RunLedger.get_run(db_path, retry.run_id)
+    assert retry_run["status"] == "queued"
+    assert retry_run["source_platform"] == "discord"
+    assert retry_run["discord_channel_id"] == "channel-1"
+    assert retry_run["discord_message_id"] == request.lineage.discord[:message_id]
+
+    retry_payload = Jason.decode!(retry_run["payload_json"])
+    assert retry_payload["source_platform"] == "discord"
+    assert retry_payload["discord"]["channel_id"] == "channel-1"
+    assert retry_payload["discord"]["message_id"] == request.lineage.discord[:message_id]
+    assert retry_payload["prompt_context"] == "surfer implement routing"
+
     assert {:ok, links} = RunLedger.list_links(db_path, retry.run_id)
     assert Enum.any?(links, &(&1["kind"] == "retry_of" and &1["external_id"] == request.run_id))
     retry_run_id = retry.run_id
@@ -130,6 +141,26 @@ defmodule SymphonyElixir.SurferOperationsTest do
 
     assert {:ok, ^retry_run_id} =
              RunLedger.lookup_idempotency_key(db_path, "operator_retry:#{request.run_id}:n1")
+  end
+
+  test "retry preserves Linear session and issue lineage", %{db_path: db_path} do
+    request = claimed_linear_request!(db_path, "session-retry-lineage")
+
+    assert :ok = RunLedger.update_status(db_path, request.run_id, "running")
+    assert :ok = RunLedger.update_status(db_path, request.run_id, "failed", error_message: "boom")
+
+    assert {:ok, retry} = Lifecycle.retry(db_path, request.run_id, actor: "operator", nonce: "n1")
+
+    assert {:ok, retry_run} = RunLedger.get_run(db_path, retry.run_id)
+    assert retry_run["source_platform"] == "linear"
+    assert retry_run["canonical_linear_issue_id"] == "issue-session-retry-lineage"
+    assert retry_run["linear_agent_session_id"] == "session-retry-lineage"
+
+    retry_payload = Jason.decode!(retry_run["payload_json"])
+    assert retry_payload["source_platform"] == "linear"
+    assert retry_payload["linear"]["issue_id"] == "issue-session-retry-lineage"
+    assert retry_payload["linear"]["agent_session_id"] == "session-retry-lineage"
+    assert retry_payload["constraints"]["require_linear_issue"] == true
   end
 
   test "takeover marks the run awaiting review and records a human handoff note", %{db_path: db_path} do
