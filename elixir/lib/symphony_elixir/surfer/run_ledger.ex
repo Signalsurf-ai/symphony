@@ -737,8 +737,8 @@ defmodule SymphonyElixir.Surfer.RunLedger do
         next_status,
         now,
         completed_at,
-        Keyword.get(opts, :error_code),
-        Keyword.get(opts, :error_message),
+        Keyword.get(opts, :error_code) |> redacted_optional(),
+        Keyword.get(opts, :error_message) |> redacted_optional(),
         run_id
       ]
     )
@@ -944,6 +944,14 @@ defmodule SymphonyElixir.Surfer.RunLedger do
   defp format_optional(nil), do: nil
   defp format_optional(value) when is_binary(value), do: value
   defp format_optional(value), do: inspect(value)
+
+  defp redacted_optional(nil), do: nil
+
+  defp redacted_optional(value) do
+    value
+    |> format_optional()
+    |> SecretRedactor.redact_text()
+  end
 
   defp encode_payload(payload) do
     payload

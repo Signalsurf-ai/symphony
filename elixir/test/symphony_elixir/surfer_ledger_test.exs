@@ -242,6 +242,36 @@ defmodule SymphonyElixir.SurferLedgerTest do
              RunLedger.update_status(db_path, request.run_id, "queued", reason: "rewind")
   end
 
+  test "redacts secret-shaped status error messages before persisting them", %{db_path: db_path} do
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-redacted-error",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, RunRequest.idempotency_key(request), request, platform: :discord)
+
+    assert :ok = RunLedger.update_status(db_path, request.run_id, "running")
+
+    error_message =
+      "runner failed Authorization: Bearer oauth-secret url=https://discord.com/api/v10/webhooks/app-1/interaction-token-secret/messages/@original"
+
+    assert :ok =
+             RunLedger.update_status(db_path, request.run_id, "failed",
+               error_code: "runner_failed",
+               error_message: error_message
+             )
+
+    assert {:ok, run} = RunLedger.get_run(db_path, request.run_id)
+    assert run["error_message"] =~ "Authorization: Bearer [REDACTED]"
+    assert run["error_message"] =~ "/webhooks/app-1/[REDACTED]/messages/@original"
+    refute run["error_message"] =~ "oauth-secret"
+    refute run["error_message"] =~ "interaction-token-secret"
+  end
+
   test "records pending platform writes as outbox events", %{db_path: db_path} do
     assert {:ok, request} =
              RunRequest.from_discord_message(%{
