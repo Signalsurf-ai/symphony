@@ -1,6 +1,10 @@
 defmodule SymphonyElixir.Orchestrator do
   @moduledoc """
-  Polls Linear and dispatches repository copies to Codex-backed workers.
+  Coordinates Surfer direct-dispatch runs and the legacy Symphony Linear poller.
+
+  Surfer v0.1 enters through platform webhooks and calls `dispatch_run/3`. The
+  Linear project poller remains available only when workflow polling is
+  explicitly enabled.
   """
 
   use GenServer
@@ -28,7 +32,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   defmodule State do
     @moduledoc """
-    Runtime state for the orchestrator polling loop.
+    Runtime state for direct-dispatch runs and optional polling.
     """
 
     defstruct [
