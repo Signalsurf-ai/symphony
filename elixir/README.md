@@ -11,7 +11,9 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 
 ![Symphony Elixir screenshot](../.github/media/elixir-screenshot.png)
 
-## How it works
+## How legacy Symphony polling works
+
+The original Symphony workflow is a Linear project poller:
 
 1. Polls Linear for candidate work
 2. Creates a workspace per issue
@@ -71,6 +73,13 @@ Surfer is the organization-agent layer built on this runner. Its default trigger
 first: Linear `AgentSessionEvent` and Discord Interactions enter Surfer directly. The existing
 Symphony Linear project poller remains available only as explicit opt-in legacy/fallback behavior
 and is disabled in the Surfer workflow example.
+
+Linear Agent sessions are the Surfer v0.1 trigger contract. Delegating an issue to Surfer,
+mentioning Surfer, or sending a follow-up agent prompt should create `AgentSessionEvent` webhooks
+that enter `/webhooks/linear/agent`. Ordinary Linear issue status or comment changes are not a
+separate Surfer trigger in v0.1 unless Linear turns them into an agent-session event for Surfer.
+If a future release needs broad status/comment notification triggers, add a distinct Linear
+notification webhook contract instead of re-enabling project polling as the default.
 
 ### What is implemented
 
@@ -400,6 +409,7 @@ Linear or Discord ingress is enabled and `polling.enabled` is omitted, the runti
 legacy poller to disabled. Enable the legacy poller only by explicitly setting
 `polling.enabled: true` as fallback for non-agent Linear project issues, and do not rely on both
 trigger paths for the same task queue unless you are intentionally testing migration behavior.
+The poller is not needed for normal Surfer delegation, mention, or follow-up prompt handling.
 
 ## Configuration
 
