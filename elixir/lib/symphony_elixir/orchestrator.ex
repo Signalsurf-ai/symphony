@@ -1891,16 +1891,10 @@ defmodule SymphonyElixir.Orchestrator do
 
     case {run_id, surfer_ledger_path()} do
       {run_id, {:ok, db_path}} when is_binary(run_id) ->
-        idempotency_hash =
-          payload
-          |> Jason.encode!()
-          |> then(&:crypto.hash(:sha256, &1))
-          |> Base.encode16(case: :lower)
-
         case RunLedger.record_pending_write(db_path, run_id, %{
                platform: platform,
                external_id: external_id,
-               idempotency_hash: idempotency_hash,
+               idempotency_hash: RunLedger.pending_write_idempotency_hash(payload),
                payload: payload
              }) do
           :ok ->

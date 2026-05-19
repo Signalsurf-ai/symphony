@@ -39,6 +39,29 @@ defmodule SymphonyElixir.SurferLedgerTest do
            )
   end
 
+  test "pending write idempotency hash ignores transient error details" do
+    base_payload = %{
+      type: "response",
+      session_id: "session-1",
+      body: "Surfer run completed."
+    }
+
+    first_failure =
+      Map.put(base_payload, :error, "Authorization: Bearer first-transient-token")
+
+    second_failure =
+      Map.put(base_payload, :error, "Authorization: Bearer second-transient-token")
+
+    changed_write =
+      Map.put(base_payload, :body, "Surfer run failed.")
+
+    assert RunLedger.pending_write_idempotency_hash(first_failure) ==
+             RunLedger.pending_write_idempotency_hash(second_failure)
+
+    refute RunLedger.pending_write_idempotency_hash(first_failure) ==
+             RunLedger.pending_write_idempotency_hash(changed_write)
+  end
+
   test "stores run, event, link, and idempotency records in SQLite", %{db_path: db_path} do
     assert {:ok, request} =
              RunRequest.from_discord_message(%{

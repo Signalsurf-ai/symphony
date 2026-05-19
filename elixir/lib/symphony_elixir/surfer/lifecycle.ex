@@ -159,10 +159,7 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
   end
 
   defp idempotency_hash(payload) do
-    payload
-    |> Jason.encode!()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
+    RunLedger.pending_write_idempotency_hash(payload)
   end
 
   @spec retry(Path.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}

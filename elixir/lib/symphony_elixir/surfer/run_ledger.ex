@@ -274,6 +274,16 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     })
   end
 
+  @spec pending_write_idempotency_hash(map()) :: String.t()
+  def pending_write_idempotency_hash(payload) when is_map(payload) do
+    payload
+    |> drop_pending_write_transient_fields()
+    |> SecretRedactor.redact()
+    |> canonical_json()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
   @spec list_pending_writes(Path.t()) :: {:ok, [map()]} | {:error, term()}
   def list_pending_writes(db_path) when is_binary(db_path) do
     result =
@@ -1072,6 +1082,28 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     |> SecretRedactor.redact()
     |> Jason.encode!()
   end
+
+  defp drop_pending_write_transient_fields(payload) when is_map(payload) do
+    payload
+    |> Map.delete(:error)
+    |> Map.delete("error")
+  end
+
+  defp canonical_json(value) when is_map(value) do
+    entries =
+      value
+      |> Enum.map(fn {key, nested_value} -> {to_string(key), canonical_json(nested_value)} end)
+      |> Enum.sort_by(fn {key, _nested_value} -> key end)
+      |> Enum.map(fn {key, encoded_value} -> Jason.encode!(key) <> ":" <> encoded_value end)
+
+    "{" <> Enum.join(entries, ",") <> "}"
+  end
+
+  defp canonical_json(value) when is_list(value) do
+    "[" <> Enum.map_join(value, ",", &canonical_json/1) <> "]"
+  end
+
+  defp canonical_json(value), do: Jason.encode!(value)
 
   defp timestamp, do: DateTime.utc_now() |> DateTime.to_iso8601()
 end
