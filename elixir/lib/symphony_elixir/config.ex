@@ -101,7 +101,8 @@ defmodule SymphonyElixir.Config do
   @spec validate_startup!() :: :ok | {:error, term()}
   def validate_startup! do
     with {:ok, settings} <- settings() do
-      with :ok <- validate_surfer_platforms(settings.surfer.platforms) do
+      with :ok <- validate_surfer_controls(settings.surfer),
+           :ok <- validate_surfer_platforms(settings.surfer.platforms) do
         validate_surfer_storage(settings.surfer)
       end
     end
@@ -125,6 +126,7 @@ defmodule SymphonyElixir.Config do
 
   defp validate_semantics(settings) do
     with :ok <- validate_tracker(settings.tracker),
+         :ok <- validate_surfer_controls(settings.surfer),
          :ok <- validate_surfer_platforms(settings.surfer.platforms) do
       validate_surfer_storage(settings.surfer)
     end
@@ -163,6 +165,14 @@ defmodule SymphonyElixir.Config do
       {:error, {:missing_surfer_storage_path, :sqlite_path}}
     else
       :ok
+    end
+  end
+
+  defp validate_surfer_controls(surfer) do
+    if surfer.pause_mode in ["drain", "cancel"] do
+      :ok
+    else
+      {:error, {:invalid_surfer_pause_mode, surfer.pause_mode}}
     end
   end
 

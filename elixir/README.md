@@ -492,7 +492,8 @@ codex:
   `POST /api/v1/surfer/unpause`. Runtime unpause clears only the operator override; if
   `surfer.paused: true` or `SURFER_PAUSED=true` is configured, ingress remains paused.
   `SURFER_PAUSE_MODE=cancel` cancels active direct-dispatch runs when the operator pause endpoint is
-  used; the default `drain` mode lets active runs continue while blocking new dispatch.
+  used; the default `drain` mode lets active runs continue while blocking new dispatch. Unsupported
+  `SURFER_PAUSE_MODE` values fail config validation before the service starts.
 - Surfer run lookup is available at `/api/v1/surfer/runs/:run_id` only from loopback addresses.
   It returns the redacted ledger run, events, links, latest error, and run-scoped log tail; prompt
   bodies, tokens, and raw platform payload containers are hidden. When `surfer.storage.logs_dir` is
