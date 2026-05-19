@@ -80,16 +80,86 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
 
   defp check_public_url({failed, passed}, env) do
     case Map.get(env, "SURFER_PUBLIC_URL") do
-      "https://" <> rest when rest != "" ->
-        {failed, [:surfer_public_url | passed]}
+      value when is_binary(value) ->
+        value = String.trim(value)
 
-      value when is_binary(value) and value != "" ->
-        {[%{name: :surfer_public_url, reason: :must_be_https_url} | failed], passed}
+        cond do
+          value == "" ->
+            {failed, passed}
 
-      _value ->
+          URI.parse(value).scheme != "https" ->
+            {[%{name: :surfer_public_url, reason: :must_be_https_url} | failed], passed}
+
+          not public_url?(value) ->
+            {[%{name: :surfer_public_url, reason: :must_be_public_https_url} | failed], passed}
+
+          true ->
+            {failed, [:surfer_public_url | passed]}
+        end
+
+      _missing ->
         {failed, passed}
     end
   end
+
+  defp public_url?(value) do
+    case URI.parse(value) do
+      %URI{scheme: "https", host: host} when is_binary(host) ->
+        public_host?(String.downcase(host))
+
+      _uri ->
+        false
+    end
+  end
+
+  defp public_host?(""), do: false
+
+  defp public_host?(host) do
+    host = String.trim_trailing(host, ".")
+
+    if host == "localhost" or String.ends_with?(host, ".localhost") do
+      false
+    else
+      public_address_or_dns_host?(host)
+    end
+  end
+
+  defp public_address_or_dns_host?(host) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, address} -> public_ip?(address)
+      {:error, _reason} -> true
+    end
+  end
+
+  defp public_ip?({127, _b, _c, _d}), do: false
+  defp public_ip?({10, _b, _c, _d}), do: false
+  defp public_ip?({100, b, _c, _d}) when b in 64..127, do: false
+  defp public_ip?({172, b, _c, _d}) when b in 16..31, do: false
+  defp public_ip?({192, 168, _c, _d}), do: false
+  defp public_ip?({169, 254, _c, _d}), do: false
+  defp public_ip?({0, _b, _c, _d}), do: false
+  defp public_ip?({192, 0, 0, _d}), do: false
+  defp public_ip?({192, 0, 2, _d}), do: false
+  defp public_ip?({198, 18, _c, _d}), do: false
+  defp public_ip?({198, 19, _c, _d}), do: false
+  defp public_ip?({198, 51, 100, _d}), do: false
+  defp public_ip?({203, 0, 113, _d}), do: false
+
+  defp public_ip?({a, _b, _c, _d}) when a >= 224, do: false
+
+  defp public_ip?({0, 0, 0, 0, 0, 0, 0, 1}), do: false
+  defp public_ip?({0, 0, 0, 0, 0, 0, 0, 0}), do: false
+
+  defp public_ip?({0, 0, 0, 0, 0, 0xFFFF, a, b}) do
+    public_ip?({div(a, 256), rem(a, 256), div(b, 256), rem(b, 256)})
+  end
+
+  defp public_ip?({0x2001, 0x0DB8, _c, _d, _e, _f, _g, _h}), do: false
+  defp public_ip?({a, _b, _c, _d, _e, _f, _g, _h}) when a in 0xFC00..0xFDFF, do: false
+  defp public_ip?({a, _b, _c, _d, _e, _f, _g, _h}) when a in 0xFE80..0xFEBF, do: false
+  defp public_ip?({a, _b, _c, _d, _e, _f, _g, _h}) when a >= 0xFF00, do: false
+
+  defp public_ip?(_address), do: true
 
   defp maybe_check_runtime_paths({failed, passed}, false, _env, _path_checker), do: {failed, passed}
 

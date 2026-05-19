@@ -126,6 +126,86 @@ defmodule SymphonyElixir.SurferLivePreflightTest do
     assert %{name: :surfer_public_url, reason: :must_be_https_url} in result.failed_checks
   end
 
+  test "treats blank Surfer public URLs as missing environment" do
+    {env, cleanup} = required_env_with_paths()
+    on_exit(cleanup)
+
+    env = Map.put(env, "SURFER_PUBLIC_URL", "   ")
+
+    result = LivePreflight.check(env: env, codex_check?: false)
+
+    refute result.ok?
+    assert "SURFER_PUBLIC_URL" in result.missing_env
+    refute Enum.any?(result.failed_checks, &match?(%{name: :surfer_public_url}, &1))
+  end
+
+  test "rejects local or hostless Surfer public URLs before live smoke" do
+    {env, cleanup} = required_env_with_paths()
+    on_exit(cleanup)
+
+    urls = [
+      "https://",
+      "https:surfer",
+      "https://localhost:4000",
+      "https://localhost.",
+      "https://agent.localhost",
+      "https://127.0.0.1:4000",
+      "https://10.0.0.1",
+      "https://100.64.0.1",
+      "https://172.16.0.1",
+      "https://192.168.0.1",
+      "https://169.254.0.1",
+      "https://0.0.0.0",
+      "https://192.0.0.1",
+      "https://192.0.2.1",
+      "https://198.18.0.1",
+      "https://198.19.0.1",
+      "https://198.51.100.1",
+      "https://203.0.113.1",
+      "https://224.0.0.1",
+      "https://[::1]",
+      "https://[::]",
+      "https://[::ffff:127.0.0.1]",
+      "https://[2001:db8::1]",
+      "https://[fc00::1]",
+      "https://[fe80::1]",
+      "https://[ff00::1]"
+    ]
+
+    Enum.each(urls, fn url ->
+      result =
+        env
+        |> Map.put("SURFER_PUBLIC_URL", url)
+        |> then(&LivePreflight.check(env: &1, codex_check?: false))
+
+      refute result.ok?, "expected #{url} to fail live preflight"
+
+      assert %{name: :surfer_public_url, reason: :must_be_public_https_url} in result.failed_checks
+    end)
+  end
+
+  test "accepts public HTTPS host and IP URLs before live smoke" do
+    {env, cleanup} = required_env_with_paths()
+    on_exit(cleanup)
+
+    urls = [
+      "https://surfer.example.com",
+      "https://surfer.example.com.",
+      "https://8.8.8.8",
+      "https://[2606:4700:4700::1111]"
+    ]
+
+    Enum.each(urls, fn url ->
+      result =
+        env
+        |> Map.put("SURFER_PUBLIC_URL", url)
+        |> then(&LivePreflight.check(env: &1, codex_check?: false))
+
+      assert result.ok?, "expected #{url} to pass live preflight"
+      assert :surfer_public_url in result.passed_checks
+    end)
+  end
+
   test "requires writable runtime mount paths" do
     env =
       required_env()
