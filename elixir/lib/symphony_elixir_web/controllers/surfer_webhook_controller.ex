@@ -61,6 +61,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
     response_conn =
       with :ok <- require_configured_path(conn, path),
+           :ok <- require_platform_enabled(linear.enabled),
            :ok <- require_secret(linear.enabled, secrets, :missing_linear_webhook_secret),
            {:ok, raw_body} <- require_raw_body(conn),
            :ok <- Webhook.verify(raw_body, signature, secrets),
@@ -70,6 +71,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
         json(conn |> put_status(202), response)
       else
         {:error, :unconfigured_webhook_path} ->
+          not_found_response(conn)
+
+        {:error, :platform_disabled} ->
           not_found_response(conn)
 
         {:error, :missing_linear_webhook_secret} ->
@@ -193,11 +197,15 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
     response_conn =
       with :ok <- require_configured_path(conn, path),
+           :ok <- require_platform_enabled(discord.enabled),
            :ok <- require_secret(discord.enabled, public_keys, :missing_discord_public_key),
            {:ok, raw_body} <- require_raw_body(conn) do
         verify_discord_interaction(conn, params, raw_body, signature, timestamp, discord, public_keys, started_at)
       else
         {:error, :unconfigured_webhook_path} ->
+          not_found_response(conn)
+
+        {:error, :platform_disabled} ->
           not_found_response(conn)
 
         {:error, :missing_discord_public_key} ->

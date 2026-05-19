@@ -85,7 +85,8 @@ notification webhook contract instead of re-enabling project polling as the defa
 ### What is implemented
 
 - Linear `AgentSessionEvent` HTTP ingress at `/webhooks/linear/agent` by default, with
-  `surfer.platforms.linear.webhook_path` enforced when configured.
+  `surfer.platforms.linear.webhook_path` enforced when configured. The route returns `404` when
+  `surfer.platforms.linear.enabled` is false.
 - Linear raw-body HMAC verification using `LINEAR_WEBHOOK_SECRET`.
 - Linear webhook payload type handling requires `AgentSessionEvent`; missing or non-agent event
   types return `400` without dispatch.
@@ -105,7 +106,8 @@ notification webhook contract instead of re-enabling project polling as the defa
 - Linear agent sessions allow one active Surfer run at a time; overlapping events for the same
   session are recorded as `awaiting_input` instead of starting duplicate Codex work.
 - Discord HTTP Interactions ingress at `/webhooks/discord/interactions` by default, with
-  `surfer.platforms.discord.interactions_path` enforced when configured.
+  `surfer.platforms.discord.interactions_path` enforced when configured. The route returns `404`
+  when `surfer.platforms.discord.enabled` is false.
 - Discord `PING`/`PONG`, Ed25519 request verification, guild/channel allowlists, `/surfer`
   subcommands, deferred slash-command ACKs, original-response edits, deduplication, and per-user
   cooldowns plus per-channel queued-run limits and optional ledger-backed daily user/channel run
