@@ -486,10 +486,50 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert json_response(conn, 403) == %{
              "error" => %{
-               "code" => "observability_refresh_forbidden",
-               "message" => "Observability refresh is loopback-only"
+               "code" => "observability_forbidden",
+               "message" => "Observability endpoints are loopback-only"
              }
            }
+  end
+
+  test "phoenix observability dashboard and read APIs are loopback-only" do
+    orchestrator_name = Module.concat(__MODULE__, :ObservabilityLoopbackOrchestrator)
+
+    {:ok, _pid} =
+      StaticOrchestrator.start_link(
+        name: orchestrator_name,
+        snapshot: static_snapshot(),
+        refresh: %{
+          queued: true,
+          coalesced: false,
+          requested_at: DateTime.utc_now(),
+          operations: ["poll", "reconcile"]
+        }
+      )
+
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+    non_loopback_conn = %{build_conn() | remote_ip: {203, 0, 113, 10}}
+
+    assert json_response(get(non_loopback_conn, "/api/v1/state"), 403) == %{
+             "error" => %{
+               "code" => "observability_forbidden",
+               "message" => "Observability endpoints are loopback-only"
+             }
+           }
+
+    assert json_response(get(non_loopback_conn, "/api/v1/MT-HTTP"), 403) == %{
+             "error" => %{
+               "code" => "observability_forbidden",
+               "message" => "Observability endpoints are loopback-only"
+             }
+           }
+
+    assert response(get(non_loopback_conn, "/"), 403) == "Observability endpoints are loopback-only"
+
+    assert SymphonyElixirWeb.LoopbackOnlyPlug.init([]) == []
+
+    ipv6_loopback_conn = %{build_conn() | remote_ip: {0, 0, 0, 0, 0, 0, 0, 1}}
+    assert json_response(get(ipv6_loopback_conn, "/api/v1/state"), 200)["counts"] == %{"running" => 1, "retrying" => 1}
   end
 
   test "phoenix observability api preserves snapshot timeout behavior" do

@@ -505,7 +505,7 @@ codex:
   reload error until the file is fixed.
 - `server.port` or CLI `--port` enables the optional Phoenix LiveView dashboard and JSON API at
   `/`, `/api/v1/state`, `/api/v1/<issue_identifier>`, and `/api/v1/refresh`.
-  The refresh endpoint triggers reconciliation and is loopback-only.
+  These observability routes are loopback-only; `/api/v1/refresh` also triggers reconciliation.
 - Surfer runtime pause and unpause are available as loopback-only `POST /api/v1/surfer/pause` and
   `POST /api/v1/surfer/unpause`. Runtime unpause clears only the operator override; if
   `surfer.paused: true` or `SURFER_PAUSED=true` is configured, ingress remains paused.
