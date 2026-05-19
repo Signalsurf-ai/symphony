@@ -956,6 +956,8 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     previous_pause = Application.get_env(:symphony_elixir, :surfer_runtime_pause)
     on_exit(fn -> restore_app_env(:surfer_runtime_pause, previous_pause) end)
     Application.delete_env(:symphony_elixir, :surfer_runtime_pause)
+    previous_session_activity_fun = Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun)
+    on_exit(fn -> restore_app_env(:surfer_linear_session_activity_fun, previous_session_activity_fun) end)
 
     db_path = Path.join(System.tmp_dir!(), "surfer-pause-cancel-#{System.unique_integer([:positive])}.sqlite3")
     File.rm_rf(db_path)
@@ -978,6 +980,12 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     WorkflowStore.force_reload()
 
     parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_session_activity_fun, fn session_id, type, body ->
+      send(parent, {:linear_cancel_activity, session_id, type, body})
+      :ok
+    end)
+
     orchestrator_name = Module.concat(__MODULE__, :PauseCancelOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -1024,6 +1032,13 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert_receive {:DOWN, ^runner_ref, :process, ^runner_pid, _reason}, 1_000
     assert %{running: []} = Orchestrator.snapshot(orchestrator_name, 1_000)
     assert {:ok, %{"status" => "cancelled", "error_message" => "maintenance"}} = RunLedger.get_run(db_path, request.run_id)
+    assert_receive {:linear_cancel_activity, "session-pause-cancel-1", :error, body}, 1_000
+    assert body =~ request.run_id
+    assert body =~ "cancelled"
+    assert body =~ "maintenance"
+    assert {:ok, events} = RunLedger.list_events(db_path, request.run_id)
+    cancelled_payload = status_transition_payload(events, "cancelled")
+    assert cancelled_payload["external_write_status"]["linear"] == "posted"
   end
 
   test "orchestrator records pending Linear writes when final activity fails" do

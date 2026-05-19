@@ -644,6 +644,20 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp post_surfer_completion(_running_entry, _reason), do: :ok
 
+  defp post_surfer_cancelled(running_entry, reason) when is_map(running_entry) do
+    run_id = running_entry_run_id(running_entry)
+    body = "Surfer run #{run_id} cancelled: #{to_string(reason)}"
+    session_id = Map.get(running_entry, :session_id)
+    surfer_context = Map.get(running_entry, :surfer_context, %{})
+
+    linear_status = post_linear_session_activity(running_entry, session_id, :error, body)
+    discord_status = post_discord_status(running_entry, surfer_context, body)
+
+    external_write_status(linear: linear_status, discord: discord_status)
+  end
+
+  defp post_surfer_cancelled(_running_entry, _reason), do: %{}
+
   defp post_budget_cap_failure(running_entry, scope, metadata) when is_map(running_entry) do
     run_id = running_entry_run_id(running_entry)
     scope_label = budget_cap_scope_label(scope)
@@ -1725,10 +1739,13 @@ defmodule SymphonyElixir.Orchestrator do
     run_id = running_entry_run_id(running_entry)
 
     if Keyword.get(opts, :record_status, true) do
+      external_write_status = post_surfer_cancelled(running_entry, reason)
+
       record_surfer_status(running_entry, "cancelled",
         reason: "operator pause",
         actor: actor,
-        error_message: reason
+        error_message: reason,
+        external_write_status: external_write_status
       )
     end
 
