@@ -403,6 +403,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
       {:error, :missing_discord_lifecycle_run_id} ->
         error_response(conn, 400, "missing_discord_lifecycle_run_id", "Discord lifecycle run id is required")
 
+      {:error, {:unsupported_discord_subcommand, subcommand}} ->
+        error_response(conn, 400, "unsupported_discord_subcommand", "Unsupported Discord Surfer subcommand: #{safe_inspect(subcommand)}")
+
       {:error, reason} ->
         error_response(conn, 400, "unsupported_discord_interaction", safe_inspect(reason))
     end

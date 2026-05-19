@@ -73,6 +73,8 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
     if present?(run_id), do: :ok, else: {:error, :missing_discord_lifecycle_run_id}
   end
 
+  defp validate_command(%{unsupported?: true, name: name}), do: {:error, {:unsupported_discord_subcommand, name}}
+
   defp validate_command(_command), do: :ok
 
   defp interaction_message(interaction, command) do
@@ -109,6 +111,10 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
     }
   end
 
+  defp parse_command_options([%{"type" => 1, "name" => name} | _]) do
+    %{name: name, unsupported?: true}
+  end
+
   defp parse_command_options([%{type: 1, name: name, options: options} | _])
        when name in ["ask", "issue", "run", "cancel", "retry", "takeover"] do
     %{
@@ -116,6 +122,10 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
       prompt: option_value(options, "prompt") || option_value(options, "request"),
       run_id: option_value(options, "run_id")
     }
+  end
+
+  defp parse_command_options([%{type: 1, name: name} | _]) do
+    %{name: name, unsupported?: true}
   end
 
   defp parse_command_options(options) do
