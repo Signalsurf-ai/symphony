@@ -12,6 +12,7 @@ defmodule SymphonyElixir.CoreTest do
     )
 
     config = Config.settings!()
+    assert config.polling.enabled == true
     assert config.polling.interval_ms == 30_000
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
@@ -29,6 +30,9 @@ defmodule SymphonyElixir.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: 45_000)
     assert Config.settings!().polling.interval_ms == 45_000
+
+    write_workflow_file!(Workflow.workflow_file_path(), polling_enabled: false)
+    assert Config.settings!().polling.enabled == false
 
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
@@ -126,6 +130,23 @@ defmodule SymphonyElixir.CoreTest do
 
     assert {:noreply, refreshed_state} = Orchestrator.handle_info(:tick, state)
     assert refreshed_state.poll_interval_ms == 45_000
+  end
+
+  test "orchestrator does not schedule Linear polling when polling is disabled" do
+    write_workflow_file!(Workflow.workflow_file_path(), polling_enabled: false)
+
+    assert {:ok, state} = Orchestrator.init([])
+    assert state.polling_enabled == false
+    assert state.next_poll_due_at_ms == nil
+    assert state.tick_timer_ref == nil
+    assert state.tick_token == nil
+
+    assert {:reply, %{queued: false, reason: :polling_disabled, operations: []}, refreshed_state} =
+             Orchestrator.handle_call(:request_refresh, {self(), make_ref()}, state)
+
+    assert refreshed_state.polling_enabled == false
+    assert refreshed_state.next_poll_due_at_ms == nil
+    assert refreshed_state.tick_timer_ref == nil
   end
 
   test "linear api token resolves from LINEAR_API_KEY env var" do

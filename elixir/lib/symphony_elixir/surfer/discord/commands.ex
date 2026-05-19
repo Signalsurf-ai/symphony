@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Surfer.Discord.Commands do
   Discord application command payloads for Surfer.
   """
 
+  alias SymphonyElixir.Surfer.SecretRedactor
+
   @discord_api "https://discord.com/api/v10"
 
   @chat_input_command 1
@@ -42,11 +44,9 @@ defmodule SymphonyElixir.Surfer.Discord.Commands do
     with {:ok, application_id} <- present(value(attrs, :application_id), :missing_discord_application_id),
          {:ok, guild_id} <- present(value(attrs, :guild_id), :missing_discord_guild_id),
          {:ok, bot_token} <- present(value(attrs, :bot_token), :missing_discord_bot_token) do
-      request_fun.(
-        "#{@discord_api}/applications/#{application_id}/guilds/#{guild_id}/commands",
-        headers(bot_token),
-        application_command()
-      )
+      "#{@discord_api}/applications/#{application_id}/guilds/#{guild_id}/commands"
+      |> request_fun.(headers(bot_token), application_command())
+      |> redact_error()
     end
   end
 
@@ -99,8 +99,14 @@ defmodule SymphonyElixir.Surfer.Discord.Commands do
   defp default_request(url, headers, body) do
     case Req.post(url, headers: headers, json: body) do
       {:ok, %{status: status, body: response_body}} when status in 200..299 -> {:ok, response_body}
-      {:ok, %{status: status, body: response_body}} -> {:error, {:discord_status, status, response_body}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: status, body: response_body}} -> {:error, {:discord_status, status, SecretRedactor.redact(response_body)}}
+      {:error, reason} -> {:error, redact_reason(reason)}
     end
   end
+
+  defp redact_error({:error, reason}), do: {:error, redact_reason(reason)}
+  defp redact_error(result), do: result
+
+  defp redact_reason(%Req.TransportError{} = reason), do: reason
+  defp redact_reason(reason), do: SecretRedactor.redact(reason)
 end

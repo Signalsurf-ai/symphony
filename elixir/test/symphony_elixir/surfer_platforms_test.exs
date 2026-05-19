@@ -213,17 +213,23 @@ defmodule SymphonyElixir.SurferPlatformsTest do
     Req.Test.expect(api_error_stub, fn conn ->
       conn
       |> Plug.Conn.put_status(401)
-      |> Req.Test.json(%{"message" => "unauthorized"})
+      |> Req.Test.json(%{"message" => "unauthorized Authorization: Bot bot-secret api_key=discord-api-key", "token" => "raw-token"})
     end)
 
     Req.default_options(plug: {Req.Test, api_error_stub}, retry: false)
 
-    assert {:error, {:discord_status, 401, %{"message" => "unauthorized"}}} =
+    assert {:error, {:discord_status, 401, command_error}} =
              Discord.Commands.register_guild_command(%{
                application_id: "app-1",
                guild_id: "guild-1",
                bot_token: "bot-secret"
              })
+
+    assert command_error["message"] == "unauthorized Authorization: Bot [REDACTED] api_key=[REDACTED]"
+    assert command_error["token"] == "[REDACTED]"
+    refute inspect(command_error) =~ "bot-secret"
+    refute inspect(command_error) =~ "discord-api-key"
+    refute inspect(command_error) =~ "raw-token"
 
     transport_error_stub = {:discord_commands, self(), :transport_error}
 
@@ -239,6 +245,35 @@ defmodule SymphonyElixir.SurferPlatformsTest do
                guild_id: "guild-1",
                bot_token: "bot-secret"
              })
+  end
+
+  test "Discord notifier redacts interaction response errors" do
+    request_fun = fn url, headers, _body ->
+      assert url == "https://discord.com/api/v10/webhooks/app-1/interaction-secret/messages/@original"
+      assert headers == [{"content-type", "application/json"}]
+
+      {:error,
+       {:discord_status, 500,
+        %{
+          "message" => "url=#{url} Authorization: Bot bot-secret",
+          "interaction_token" => "interaction-secret"
+        }}}
+    end
+
+    assert {:error, {:discord_status, 500, error_body}} =
+             Discord.Notifier.edit_original_interaction_response(
+               "app-1",
+               "interaction-secret",
+               "Done",
+               request_fun: request_fun
+             )
+
+    assert error_body["message"] ==
+             "url=https://discord.com/api/v10/webhooks/app-1/[REDACTED]/messages/@original Authorization: Bot [REDACTED]"
+
+    assert error_body["interaction_token"] == "[REDACTED]"
+    refute inspect(error_body) =~ "interaction-secret"
+    refute inspect(error_body) =~ "bot-secret"
   end
 
   test "Discord ingress rejects unconfigured guilds" do

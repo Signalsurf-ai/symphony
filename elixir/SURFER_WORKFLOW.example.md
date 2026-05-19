@@ -15,6 +15,10 @@ tracker:
     - Duplicate
     - Done
 polling:
+  # Surfer v0.1 is webhook-first through Linear AgentSessionEvent and Discord
+  # Interactions. Keep the legacy Symphony Linear project poller disabled unless
+  # an operator intentionally wants fallback polling for non-agent project issues.
+  enabled: false
   interval_ms: 5000
 workspace:
   root: $SURFER_WORKSPACE_ROOT

@@ -16,6 +16,9 @@ This repository also contains the Surfer v0.1 product layer being developed from
 runner. Surfer is an internal, VPS-hosted organization coding agent:
 
 - Linear is the canonical state machine for durable coding tasks.
+- Linear Agent sessions are webhook/direct-dispatch based; the legacy Symphony
+  Linear project poller is disabled in the Surfer workflow example unless an
+  operator explicitly enables it as fallback.
 - Discord is a required invocation and notification surface.
 - GitHub owns repositories, branches, PRs, and optional on-demand Company Brain
   retrieval from `Signalsurf-ai/signalsurf-company-brain`.

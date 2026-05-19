@@ -32,6 +32,7 @@ defmodule SymphonyElixir.Orchestrator do
     """
 
     defstruct [
+      :polling_enabled,
       :poll_interval_ms,
       :max_concurrent_agents,
       :next_poll_due_at_ms,
@@ -78,13 +79,13 @@ defmodule SymphonyElixir.Orchestrator do
 
   @impl true
   def init(_opts) do
-    now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
     state = %State{
+      polling_enabled: config.polling.enabled,
       poll_interval_ms: config.polling.interval_ms,
       max_concurrent_agents: config.agent.max_concurrent_agents,
-      next_poll_due_at_ms: now_ms,
+      next_poll_due_at_ms: nil,
       poll_check_in_progress: false,
       tick_timer_ref: nil,
       tick_token: nil,
@@ -93,7 +94,7 @@ defmodule SymphonyElixir.Orchestrator do
     }
 
     run_terminal_workspace_cleanup(config)
-    state = schedule_tick(state, 0)
+    state = schedule_tick_if_enabled(state, 0)
 
     {:ok, state}
   end
@@ -103,17 +104,21 @@ defmodule SymphonyElixir.Orchestrator do
       when is_reference(tick_token) do
     state = refresh_runtime_config(state)
 
-    state = %{
-      state
-      | poll_check_in_progress: true,
-        next_poll_due_at_ms: nil,
-        tick_timer_ref: nil,
-        tick_token: nil
-    }
+    if state.polling_enabled do
+      state = %{
+        state
+        | poll_check_in_progress: true,
+          next_poll_due_at_ms: nil,
+          tick_timer_ref: nil,
+          tick_token: nil
+      }
 
-    notify_dashboard()
-    :ok = schedule_poll_cycle_start()
-    {:noreply, state}
+      notify_dashboard()
+      :ok = schedule_poll_cycle_start()
+      {:noreply, state}
+    else
+      {:noreply, clear_poll_schedule(state)}
+    end
   end
 
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
@@ -121,23 +126,27 @@ defmodule SymphonyElixir.Orchestrator do
   def handle_info(:tick, state) do
     state = refresh_runtime_config(state)
 
-    state = %{
-      state
-      | poll_check_in_progress: true,
-        next_poll_due_at_ms: nil,
-        tick_timer_ref: nil,
-        tick_token: nil
-    }
+    if state.polling_enabled do
+      state = %{
+        state
+        | poll_check_in_progress: true,
+          next_poll_due_at_ms: nil,
+          tick_timer_ref: nil,
+          tick_token: nil
+      }
 
-    notify_dashboard()
-    :ok = schedule_poll_cycle_start()
-    {:noreply, state}
+      notify_dashboard()
+      :ok = schedule_poll_cycle_start()
+      {:noreply, state}
+    else
+      {:noreply, clear_poll_schedule(state)}
+    end
   end
 
   def handle_info(:run_poll_cycle, state) do
     state = refresh_runtime_config(state)
-    state = maybe_dispatch(state)
-    state = schedule_tick(state, state.poll_interval_ms)
+    state = if state.polling_enabled, do: maybe_dispatch(state), else: state
+    state = schedule_tick_if_enabled(state, state.poll_interval_ms)
     state = %{state | poll_check_in_progress: false}
 
     notify_dashboard()
@@ -1482,6 +1491,7 @@ defmodule SymphonyElixir.Orchestrator do
        codex_totals: state.codex_totals,
        rate_limits: Map.get(state, :codex_rate_limits),
        polling: %{
+         enabled?: state.polling_enabled,
          checking?: state.poll_check_in_progress == true,
          next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
          poll_interval_ms: state.poll_interval_ms
@@ -1490,18 +1500,31 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   def handle_call(:request_refresh, _from, state) do
+    state = refresh_runtime_config(state)
     now_ms = System.monotonic_time(:millisecond)
     already_due? = is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= now_ms
     coalesced = state.poll_check_in_progress == true or already_due?
-    state = if coalesced, do: state, else: schedule_tick(state, 0)
 
-    {:reply,
-     %{
-       queued: true,
-       coalesced: coalesced,
-       requested_at: DateTime.utc_now(),
-       operations: ["poll", "reconcile"]
-     }, state}
+    if state.polling_enabled do
+      state = if coalesced, do: state, else: schedule_tick(state, 0)
+
+      {:reply,
+       %{
+         queued: true,
+         coalesced: coalesced,
+         requested_at: DateTime.utc_now(),
+         operations: ["poll", "reconcile"]
+       }, state}
+    else
+      {:reply,
+       %{
+         queued: false,
+         coalesced: false,
+         requested_at: DateTime.utc_now(),
+         operations: [],
+         reason: :polling_disabled
+       }, clear_poll_schedule(state)}
+    end
   end
 
   defp start_direct_dispatch_worker(state, from, request, issue, recipient, surfer_context, runner_fun) do
@@ -1972,6 +1995,17 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
+  defp schedule_tick_if_enabled(%State{polling_enabled: true} = state, delay_ms), do: schedule_tick(state, delay_ms)
+  defp schedule_tick_if_enabled(%State{} = state, _delay_ms), do: clear_poll_schedule(state)
+
+  defp clear_poll_schedule(%State{} = state) do
+    if is_reference(state.tick_timer_ref) do
+      Process.cancel_timer(state.tick_timer_ref)
+    end
+
+    %{state | poll_check_in_progress: false, next_poll_due_at_ms: nil, tick_timer_ref: nil, tick_token: nil}
+  end
+
   defp schedule_poll_cycle_start do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
     :ok
@@ -2007,15 +2041,20 @@ defmodule SymphonyElixir.Orchestrator do
       {:ok, config} ->
         %{
           state
-          | poll_interval_ms: config.polling.interval_ms,
+          | polling_enabled: config.polling.enabled,
+            poll_interval_ms: config.polling.interval_ms,
             max_concurrent_agents: config.agent.max_concurrent_agents
         }
+        |> maybe_clear_disabled_polling()
 
       {:error, reason} ->
         Logger.debug("Skipping orchestrator runtime config refresh: #{inspect(reason)}")
         state
     end
   end
+
+  defp maybe_clear_disabled_polling(%State{polling_enabled: false} = state), do: clear_poll_schedule(state)
+  defp maybe_clear_disabled_polling(%State{} = state), do: state
 
   defp retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and

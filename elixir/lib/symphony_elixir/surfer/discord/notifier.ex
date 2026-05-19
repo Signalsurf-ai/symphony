@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Surfer.Discord.Notifier do
   Minimal Discord REST notifier used for Surfer status messages.
   """
 
+  alias SymphonyElixir.Surfer.SecretRedactor
+
   @discord_api "https://discord.com/api/v10"
 
   @spec post_message(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -13,7 +15,9 @@ defmodule SymphonyElixir.Surfer.Discord.Notifier do
 
     case token do
       token when is_binary(token) and token != "" ->
-        request_fun.("#{@discord_api}/channels/#{channel_id}/messages", headers(token), %{content: body})
+        "#{@discord_api}/channels/#{channel_id}/messages"
+        |> request_fun.(headers(token), %{content: body})
+        |> redact_error()
 
       _ ->
         {:error, :missing_discord_bot_token}
@@ -25,11 +29,9 @@ defmodule SymphonyElixir.Surfer.Discord.Notifier do
       when is_binary(application_id) and is_binary(interaction_token) and is_binary(body) do
     request_fun = Keyword.get(opts, :request_fun, &default_patch_request/3)
 
-    request_fun.(
-      "#{@discord_api}/webhooks/#{application_id}/#{interaction_token}/messages/@original",
-      [{"content-type", "application/json"}],
-      %{content: body}
-    )
+    "#{@discord_api}/webhooks/#{application_id}/#{interaction_token}/messages/@original"
+    |> request_fun.([{"content-type", "application/json"}], %{content: body})
+    |> redact_error()
   end
 
   defp headers(token) do
@@ -42,16 +44,22 @@ defmodule SymphonyElixir.Surfer.Discord.Notifier do
   defp default_request(url, headers, body) do
     case Req.post(url, headers: headers, json: body) do
       {:ok, %{status: status}} when status in 200..299 -> :ok
-      {:ok, %{status: status, body: response_body}} -> {:error, {:discord_status, status, response_body}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: status, body: response_body}} -> {:error, {:discord_status, status, SecretRedactor.redact(response_body)}}
+      {:error, reason} -> {:error, redact_reason(reason)}
     end
   end
 
   defp default_patch_request(url, headers, body) do
     case Req.patch(url, headers: headers, json: body) do
       {:ok, %{status: status}} when status in 200..299 -> :ok
-      {:ok, %{status: status, body: response_body}} -> {:error, {:discord_status, status, response_body}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: status, body: response_body}} -> {:error, {:discord_status, status, SecretRedactor.redact(response_body)}}
+      {:error, reason} -> {:error, redact_reason(reason)}
     end
   end
+
+  defp redact_error({:error, reason}), do: {:error, redact_reason(reason)}
+  defp redact_error(result), do: result
+
+  defp redact_reason(%Req.TransportError{} = reason), do: reason
+  defp redact_reason(reason), do: SecretRedactor.redact(reason)
 end

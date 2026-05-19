@@ -67,14 +67,18 @@ mise exec -- ./bin/symphony ./WORKFLOW.md
 
 ## Surfer v0.1 VPS Deployment
 
-Surfer is the organization-agent layer built on this runner. It keeps the existing Linear poller
-available, and adds native platform ingress for Linear Agent sessions and Discord Interactions.
+Surfer is the organization-agent layer built on this runner. Its default trigger path is webhook
+first: Linear `AgentSessionEvent` and Discord Interactions enter Surfer directly. The existing
+Symphony Linear project poller remains available only as explicit opt-in legacy/fallback behavior
+and is disabled in the Surfer workflow example.
 
 ### What is implemented
 
 - Linear `AgentSessionEvent` HTTP ingress at `/webhooks/linear/agent` by default, with
   `surfer.platforms.linear.webhook_path` enforced when configured.
 - Linear raw-body HMAC verification using `LINEAR_WEBHOOK_SECRET`.
+- Surfer v0.1 deployment defaults disable the legacy Symphony Linear project poller with
+  `polling.enabled: false`; direct webhook dispatch remains available.
 - Enabled Linear, Discord, and GitHub config fails closed at application startup when required
   secrets are missing.
 - Early Linear `thought` activity plus final `response` or `error` activity for direct-dispatch runs.
@@ -98,8 +102,9 @@ available, and adds native platform ingress for Linear Agent sessions and Discor
 - Discord original-response edit failures retry within the short-lived interaction-token window
   measured from interaction receipt, emit telemetry after retry exhaustion, and fall back to a bot
   channel message without storing the interaction token.
-- Discord completion, fallback, and error notification failures are recorded as retryable pending
-  writes without storing interaction tokens.
+- Discord REST helper errors redact bot-token and interaction-token shaped values before returning
+  to callers; completion, fallback, and error notification failures are recorded as retryable
+  pending writes without storing interaction tokens.
 - Discord lifecycle controls for `cancel` and `retry` against locally-ledgered runs.
 - Deterministic repository routing from PRD-shaped `key`/`repo` repository config, explicit
   `repository_key`, Linear team IDs, Discord channel IDs, or a single configured fallback.
@@ -370,6 +375,17 @@ GitHub:
 Use [`SURFER_WORKFLOW.example.md`](SURFER_WORKFLOW.example.md) as the starting workflow. Secrets must
 come from environment variables or a VPS secret manager. SQLite is only a local ledger for run
 history, idempotency, and dashboard lookup; Linear remains canonical for durable task state.
+
+Surfer v0.1 should normally keep:
+
+```yaml
+polling:
+  enabled: false
+```
+
+Linear Agent sessions and Discord Interactions are webhook/direct-dispatch paths. Enable the legacy
+poller only as an explicit fallback for non-agent Linear project issues, and do not rely on both
+trigger paths for the same task queue unless you are intentionally testing migration behavior.
 
 ## Configuration
 

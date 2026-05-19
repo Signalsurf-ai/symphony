@@ -594,6 +594,14 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert ["${SURFER_HOST_BIND:-127.0.0.1}:4000:4000"] = get_in(compose, ["services", "surfer", "ports"])
   end
 
+  test "Surfer workflow disables the legacy Linear project poller by default" do
+    assert {:ok, %{config: workflow}} =
+             SymphonyElixir.Workflow.load(Path.expand("../../SURFER_WORKFLOW.example.md", __DIR__))
+
+    assert get_in(workflow, ["polling", "enabled"]) == false
+    assert get_in(workflow, ["polling", "interval_ms"]) == 5000
+  end
+
   test "operator requeues pending platform writes and records drained or failed outcomes", %{db_path: db_path} do
     request = claimed_request!(db_path)
 
