@@ -169,8 +169,9 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
     actor = Keyword.get(opts, :actor, "operator")
     reason = Keyword.get(opts, :reason, "taken over by operator")
 
-    with :ok <-
-           RunLedger.update_status(db_path, run_id, "awaiting_review",
+    with {:ok, handoff_status} <- takeover_handoff_status(db_path, run_id),
+         :ok <-
+           RunLedger.update_status(db_path, run_id, handoff_status,
              reason: reason,
              actor: actor
            ) do
@@ -180,10 +181,27 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
         payload: %{
           actor: actor,
           reason: reason,
+          status: handoff_status,
           handoff_to: "human",
           note: Keyword.get(opts, :note, "Surfer run #{run_id} was taken over by #{actor}: #{reason}")
         }
       })
+    end
+  end
+
+  defp takeover_handoff_status(db_path, run_id) do
+    case RunLedger.validate_status_transition(db_path, run_id, "awaiting_review") do
+      :ok ->
+        {:ok, "awaiting_review"}
+
+      {:error, {:invalid_transition, _from, "awaiting_review"}} ->
+        case RunLedger.validate_status_transition(db_path, run_id, "cancelled") do
+          :ok -> {:ok, "cancelled"}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

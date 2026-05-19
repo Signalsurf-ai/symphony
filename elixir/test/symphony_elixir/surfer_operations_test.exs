@@ -154,6 +154,26 @@ defmodule SymphonyElixir.SurferOperationsTest do
            end)
   end
 
+  test "takeover marks a queued run cancelled and records a human handoff note", %{db_path: db_path} do
+    request = claimed_request!(db_path)
+
+    assert :ok =
+             Lifecycle.takeover(db_path, request.run_id,
+               actor: "operator:test",
+               reason: "operator is taking over before dispatch"
+             )
+
+    assert {:ok, %{"status" => "cancelled"}} = RunLedger.get_run(db_path, request.run_id)
+    assert {:ok, events} = RunLedger.list_events(db_path, request.run_id)
+
+    assert Enum.any?(events, fn event ->
+             event["event_type"] == "handoff_note" and
+               event["payload_json"] =~ "operator is taking over before dispatch" and
+               event["payload_json"] =~ "operator:test" and
+               event["payload_json"] =~ "cancelled"
+           end)
+  end
+
   test "GitHub PR open records link, event, and awaiting-review status", %{db_path: db_path} do
     request = claimed_request!(db_path)
 
