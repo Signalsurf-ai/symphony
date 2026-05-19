@@ -13,10 +13,10 @@ defmodule SymphonyElixir.Orchestrator do
 
   alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.Surfer.{Budget, Metrics, RunLedger, WorkspaceLifecycle}
   alias SymphonyElixir.Surfer.Discord.Notifier, as: DiscordNotifier
   alias SymphonyElixir.Surfer.GitHub.CompanyBrain
   alias SymphonyElixir.Surfer.Linear.Session, as: LinearSession
-  alias SymphonyElixir.Surfer.{Metrics, RunLedger, WorkspaceLifecycle}
   alias SymphonyElixir.Surfer.RunRequest
 
   @continuation_retry_delay_ms 1_000
@@ -215,9 +215,11 @@ defmodule SymphonyElixir.Orchestrator do
           state
           |> apply_codex_token_delta(token_delta)
           |> apply_codex_rate_limits(update)
+          |> Map.put(:running, Map.put(running, issue_id, updated_running_entry))
+          |> enforce_run_budget_cap(issue_id, updated_running_entry)
 
         notify_dashboard()
-        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+        {:noreply, state}
     end
   end
 
@@ -641,6 +643,20 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp post_surfer_completion(_running_entry, _reason), do: :ok
+
+  defp post_budget_cap_failure(running_entry, metadata) when is_map(running_entry) do
+    run_id = running_entry_run_id(running_entry)
+    body = "Surfer run #{run_id} failed: per-run budget cap exceeded."
+    session_id = Map.get(running_entry, :session_id)
+    surfer_context = Map.get(running_entry, :surfer_context, %{})
+
+    linear_status = post_linear_session_activity(running_entry, session_id, :error, body)
+    discord_status = post_discord_status(running_entry, surfer_context, body)
+
+    Logger.warning("Surfer run exceeded per-run budget cap run_id=#{run_id} used_usd=#{inspect(Map.get(metadata, :used_usd))} limit_usd=#{inspect(Map.get(metadata, :limit_usd))}")
+
+    external_write_status(linear: linear_status, discord: discord_status)
+  end
 
   defp normalize_task_exit_reason(:normal), do: :normal
   defp normalize_task_exit_reason(:noproc), do: :normal
@@ -2116,6 +2132,36 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp apply_codex_rate_limits(state, _update), do: state
+
+  defp enforce_run_budget_cap(%State{} = state, issue_id, running_entry) do
+    with run_id when is_binary(run_id) <- running_entry_run_id(running_entry),
+         limit_usd when is_number(limit_usd) <- per_run_budget_limit(),
+         {:ok, db_path} <- surfer_ledger_path(),
+         {:error, {:run_budget_cap_exceeded, metadata}} <- Budget.check_run_cap(db_path, run_id, limit_usd) do
+      post_budget_cap_failure(running_entry, metadata)
+      emit_codex_run_duration(running_entry)
+      state = terminate_running_issue(state, issue_id, false)
+      emit_runtime_gauges(state)
+      state
+    else
+      :ok ->
+        state
+
+      {:error, reason} ->
+        Logger.warning("Skipping Surfer per-run budget cap check: #{inspect(reason)}")
+        state
+
+      _ ->
+        state
+    end
+  end
+
+  defp per_run_budget_limit do
+    case Config.settings() do
+      {:ok, settings} -> settings.surfer.codex.per_run_budget_usd
+      {:error, _reason} -> nil
+    end
+  end
 
   defp apply_token_delta(codex_totals, token_delta) do
     input_tokens = Map.get(codex_totals, :input_tokens, 0) + token_delta.input_tokens
