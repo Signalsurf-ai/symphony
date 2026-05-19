@@ -394,8 +394,10 @@ polling:
   enabled: false
 ```
 
-Linear Agent sessions and Discord Interactions are webhook/direct-dispatch paths. Enable the legacy
-poller only as an explicit fallback for non-agent Linear project issues, and do not rely on both
+Linear Agent sessions and Discord Interactions are webhook/direct-dispatch paths. When Surfer
+Linear or Discord ingress is enabled and `polling.enabled` is omitted, the runtime defaults the
+legacy poller to disabled. Enable the legacy poller only by explicitly setting
+`polling.enabled: true` as fallback for non-agent Linear project issues, and do not rely on both
 trigger paths for the same task queue unless you are intentionally testing migration behavior.
 
 ## Configuration

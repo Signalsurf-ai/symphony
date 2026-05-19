@@ -593,14 +593,15 @@ defmodule SymphonyElixir.Config.Schema do
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
   def parse(config) when is_map(config) do
+    config = config |> normalize_keys() |> drop_nil_values()
+    polling_enabled_configured? = polling_enabled_configured?(config)
+
     config
-    |> normalize_keys()
-    |> drop_nil_values()
     |> changeset()
     |> apply_action(:validate)
     |> case do
       {:ok, settings} ->
-        {:ok, finalize_settings(settings)}
+        {:ok, finalize_settings(settings, polling_enabled_configured?: polling_enabled_configured?)}
 
       {:error, changeset} ->
         {:error, {:invalid_workflow_config, format_errors(changeset)}}
@@ -684,7 +685,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:surfer, with: &Surfer.changeset/2)
   end
 
-  defp finalize_settings(settings) do
+  defp finalize_settings(settings, opts) do
     tracker = %{
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
@@ -699,6 +700,7 @@ defmodule SymphonyElixir.Config.Schema do
     }
 
     surfer = finalize_surfer(settings.surfer, tracker.api_key)
+    polling = default_surfer_polling(settings.polling, surfer, Keyword.fetch!(opts, :polling_enabled_configured?))
     default_workspace_root = Path.join(System.tmp_dir!(), "symphony_workspaces")
     surfer_workspace_root = resolve_path_value(surfer.workspace_root, nil)
 
@@ -709,7 +711,20 @@ defmodule SymphonyElixir.Config.Schema do
 
     surfer = %{surfer | workspace_root: surfer_workspace_root || workspace.root}
 
-    %{settings | tracker: tracker, workspace: workspace, codex: codex, surfer: surfer}
+    %{settings | tracker: tracker, polling: polling, workspace: workspace, codex: codex, surfer: surfer}
+  end
+
+  defp polling_enabled_configured?(%{"polling" => %{} = polling}), do: Map.has_key?(polling, "enabled")
+  defp polling_enabled_configured?(_config), do: false
+
+  defp default_surfer_polling(polling, surfer, false) do
+    if surfer_direct_ingress_enabled?(surfer), do: %{polling | enabled: false}, else: polling
+  end
+
+  defp default_surfer_polling(polling, _surfer, true), do: polling
+
+  defp surfer_direct_ingress_enabled?(%Surfer{} = surfer) do
+    surfer.platforms.linear.enabled == true or surfer.platforms.discord.enabled == true
   end
 
   defp finalize_surfer(%Surfer{} = surfer, linear_access_token_fallback) do

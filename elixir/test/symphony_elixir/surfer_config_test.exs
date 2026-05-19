@@ -256,6 +256,56 @@ defmodule SymphonyElixir.SurferConfigTest do
     assert settings.surfer.platforms.github.token == "github-token"
   end
 
+  test "defaults Surfer direct ingress to no legacy Linear polling unless explicitly enabled" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: linear-secret
+            access_token: linear-token
+        storage:
+          sqlite_path: /tmp/surfer.sqlite3
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert Config.settings!().polling.enabled == false
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      polling:
+        enabled: true
+      surfer:
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: linear-secret
+            access_token: linear-token
+        storage:
+          sqlite_path: /tmp/surfer.sqlite3
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert Config.settings!().polling.enabled == true
+  end
+
   test "resolves environment-backed tracker project slug for Surfer workflows" do
     previous_project_slug = System.get_env("LINEAR_PROJECT_SLUG")
 
