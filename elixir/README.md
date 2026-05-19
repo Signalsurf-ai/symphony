@@ -95,8 +95,9 @@ available, and adds native platform ingress for Linear Agent sessions and Discor
 - Discord-to-Linear issue creation through Linear `issueCreate`.
 - Discord durable `run` requests create a Linear issue and persist the Linear issue link before
   dispatching long-running Codex work.
-- Discord original-response edit failures emit telemetry and fall back to a bot channel message
-  without storing the interaction token.
+- Discord original-response edit failures retry within the short-lived interaction-token window,
+  emit telemetry after retry exhaustion, and fall back to a bot channel message without storing the
+  interaction token.
 - Discord completion, fallback, and error notification failures are recorded as retryable pending
   writes without storing interaction tokens.
 - Discord lifecycle controls for `cancel` and `retry` against locally-ledgered runs.

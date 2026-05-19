@@ -23,6 +23,9 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     discord_interaction_retry_backoff_ms =
       Application.get_env(:symphony_elixir, :surfer_discord_interaction_retry_backoff_ms)
 
+    discord_interaction_retry_window_ms =
+      Application.get_env(:symphony_elixir, :surfer_discord_interaction_retry_window_ms)
+
     pending_write_retry_fun = Application.get_env(:symphony_elixir, :surfer_pending_write_retry_fun)
     run_claim_fun = Application.get_env(:symphony_elixir, :surfer_run_claim_fun)
     runtime_pause = Application.get_env(:symphony_elixir, :surfer_runtime_pause)
@@ -45,6 +48,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       restore_app_env(:surfer_discord_post_fun, discord_post_fun)
       restore_app_env(:surfer_discord_interaction_response_fun, discord_interaction_response_fun)
       restore_app_env(:surfer_discord_interaction_retry_backoff_ms, discord_interaction_retry_backoff_ms)
+      restore_app_env(:surfer_discord_interaction_retry_window_ms, discord_interaction_retry_window_ms)
       restore_app_env(:surfer_pending_write_retry_fun, pending_write_retry_fun)
       restore_app_env(:surfer_run_claim_fun, run_claim_fun)
       restore_app_env(:surfer_runtime_pause, runtime_pause)
@@ -1301,6 +1305,8 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       end
     end)
 
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_retry_window_ms, 0)
+
     Application.put_env(:symphony_elixir, :surfer_discord_interaction_response_fun, fn _application_id, _token, _body ->
       {:error, :interaction_down}
     end)
@@ -1694,6 +1700,8 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_retry_window_ms, 0)
+
     Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
       send(parent, {:discord_dispatch, request.run_id})
       :ok
@@ -1747,7 +1755,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute run["payload_json"] =~ "interaction-token-secret"
   end
 
-  test "Discord interaction response retries transient edit failure before channel fallback" do
+  test "Discord interaction response retries transient edit failure within the token window" do
     {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
     previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
     previous_bot_token = System.get_env("DISCORD_BOT_TOKEN")
@@ -1793,6 +1801,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     {:ok, target_body} = Agent.start_link(fn -> nil end)
 
     Application.put_env(:symphony_elixir, :surfer_discord_interaction_retry_backoff_ms, 0)
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_retry_window_ms, 1_000)
 
     Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
       send(parent, {:discord_dispatch, request.run_id})
@@ -1810,7 +1819,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         send(parent, {:interaction_response_attempt, attempt, application_id, token, body})
         Agent.update(target_body, fn _current_body -> body end)
 
-        if attempt == 1 do
+        if attempt < 3 do
           {:error, :discord_5xx}
         else
           :ok
@@ -1853,6 +1862,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert_receive {:discord_dispatch, run_id}
     assert_receive {:interaction_response_attempt, 1, "app-1", "interaction-token-secret", body}
     assert_receive {:interaction_response_attempt, 2, "app-1", "interaction-token-secret", ^body}
+    assert_receive {:interaction_response_attempt, 3, "app-1", "interaction-token-secret", ^body}
     refute_receive {:channel_fallback, _channel_id, _body}, 100
 
     assert {:ok, run} = RunLedger.get_run(db_path, run_id)
@@ -1913,6 +1923,8 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     )
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_retry_window_ms, 0)
 
     Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
       send(parent, {:discord_dispatch, request.run_id})

@@ -30,8 +30,8 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   @default_discord_message_path "/webhooks/discord/message"
   @default_discord_interactions_path "/webhooks/discord/interactions"
   @task_ledger_path_key {__MODULE__, :surfer_ledger_path}
-  @discord_interaction_response_attempts 2
-  @discord_interaction_response_retry_backoff_ms 25
+  @discord_interaction_response_retry_backoff_ms 1_000
+  @discord_interaction_token_window_ms 15 * 60 * 1_000
 
   @spec platform_webhook(Conn.t(), map()) :: Conn.t()
   def platform_webhook(conn, params) do
@@ -997,11 +997,11 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
   defp post_discord_interaction_response(%{"application_id" => application_id, "token" => token} = raw_message, body, run_id)
        when is_binary(application_id) and is_binary(token) and is_binary(body) do
-    case post_discord_interaction_response_with_retry(
+    case post_discord_interaction_response_until(
            application_id,
            token,
            body,
-           @discord_interaction_response_attempts
+           discord_interaction_retry_deadline_ms()
          ) do
       :ok ->
         :ok
@@ -1013,18 +1013,18 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
   defp post_discord_interaction_response(_raw_message, _body, _run_id), do: :ok
 
-  defp post_discord_interaction_response_with_retry(application_id, token, body, attempts_left)
-       when attempts_left > 0 do
+  defp post_discord_interaction_response_until(application_id, token, body, deadline_ms) do
     case attempt_discord_interaction_response(application_id, token, body) do
       :ok ->
         :ok
 
-      {:error, _reason} when attempts_left > 1 ->
-        maybe_sleep_discord_interaction_retry()
-        post_discord_interaction_response_with_retry(application_id, token, body, attempts_left - 1)
-
       {:error, reason} ->
-        {:error, reason}
+        if System.monotonic_time(:millisecond) < deadline_ms do
+          maybe_sleep_discord_interaction_retry(deadline_ms)
+          post_discord_interaction_response_until(application_id, token, body, deadline_ms)
+        else
+          {:error, reason}
+        end
     end
   end
 
@@ -1045,13 +1045,25 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     end
   end
 
-  defp maybe_sleep_discord_interaction_retry do
+  defp discord_interaction_retry_deadline_ms do
+    System.monotonic_time(:millisecond) +
+      Application.get_env(
+        :symphony_elixir,
+        :surfer_discord_interaction_retry_window_ms,
+        @discord_interaction_token_window_ms
+      )
+  end
+
+  defp maybe_sleep_discord_interaction_retry(deadline_ms) do
+    now_ms = System.monotonic_time(:millisecond)
+    remaining_ms = deadline_ms - now_ms
+
     case Application.get_env(
            :symphony_elixir,
            :surfer_discord_interaction_retry_backoff_ms,
            @discord_interaction_response_retry_backoff_ms
          ) do
-      ms when is_integer(ms) and ms > 0 -> Process.sleep(ms)
+      ms when is_integer(ms) and ms > 0 and remaining_ms > 0 -> Process.sleep(min(ms, remaining_ms))
       _ -> :ok
     end
   end
