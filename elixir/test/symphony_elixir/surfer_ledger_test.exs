@@ -272,6 +272,34 @@ defmodule SymphonyElixir.SurferLedgerTest do
     refute run["error_message"] =~ "interaction-token-secret"
   end
 
+  test "redacts secret-shaped link fields before persisting them", %{db_path: db_path} do
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-redacted-link",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    assert :ok = RunLedger.upsert_run(db_path, request, status: "queued")
+
+    assert :ok =
+             RunLedger.record_link(db_path, request.run_id, %{
+               platform: "discord",
+               kind: "original_response",
+               external_id: "discord_interaction_token=external-link-secret",
+               url: "https://discord.com/api/v10/webhooks/app-1/interaction-token-secret/messages/@original?access_token=url-link-secret"
+             })
+
+    assert {:ok, [link]} = RunLedger.list_links(db_path, request.run_id)
+    assert link["external_id"] == "discord_interaction_token=[REDACTED]"
+    assert link["url"] =~ "/webhooks/app-1/[REDACTED]/messages/@original"
+    assert link["url"] =~ "access_token=[REDACTED]"
+    refute link["external_id"] =~ "external-link-secret"
+    refute link["url"] =~ "interaction-token-secret"
+    refute link["url"] =~ "url-link-secret"
+  end
+
   test "records pending platform writes as outbox events", %{db_path: db_path} do
     assert {:ok, request} =
              RunRequest.from_discord_message(%{

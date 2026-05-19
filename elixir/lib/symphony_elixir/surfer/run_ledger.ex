@@ -314,8 +314,8 @@ defmodule SymphonyElixir.Surfer.RunLedger do
           run_id,
           value(link, :platform),
           value(link, :kind),
-          value(link, :external_id),
-          value(link, :url),
+          value(link, :external_id) |> redacted_optional(),
+          value(link, :url) |> redacted_optional(),
           timestamp()
         ]
       )
