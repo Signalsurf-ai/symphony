@@ -3598,11 +3598,22 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert :ok = RunLedger.initialize(db_path)
 
     previous_orchestrator_server = Application.get_env(:symphony_elixir, :surfer_orchestrator_server)
-    on_exit(fn -> restore_app_env(:surfer_orchestrator_server, previous_orchestrator_server) end)
+    previous_discord_post_fun = Application.get_env(:symphony_elixir, :surfer_discord_post_fun)
+
+    on_exit(fn ->
+      restore_app_env(:surfer_orchestrator_server, previous_orchestrator_server)
+      restore_app_env(:surfer_discord_post_fun, previous_discord_post_fun)
+    end)
 
     parent = self()
     orchestrator_name = Module.concat(__MODULE__, :OperatorActiveCancelOrchestrator)
     Application.put_env(:symphony_elixir, :surfer_orchestrator_server, orchestrator_name)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_post_fun, fn channel_id, body ->
+      send(parent, {:operator_cancel_source_notice, channel_id, body})
+      :ok
+    end)
+
     {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
@@ -3638,6 +3649,9 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
 
     assert %{"run_id" => run_id, "status" => "cancelled"} = json_response(cancel, 200)
     assert run_id == request.run_id
+    assert_receive {:operator_cancel_source_notice, "channel-1", body}, 1_000
+    assert body =~ "Surfer run #{request.run_id} cancelled: cancelled by operator"
+    refute_receive {:operator_cancel_source_notice, "channel-1", _body}, 100
     assert_receive {:DOWN, ^runner_ref, :process, ^runner_pid, _reason}, 1_000
     assert %{running: []} = Orchestrator.snapshot(orchestrator_name, 1_000)
     assert {:ok, %{"status" => "cancelled"}} = RunLedger.get_run(db_path, request.run_id)

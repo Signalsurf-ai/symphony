@@ -928,6 +928,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
   defp cancel_active_run(run_id, opts) do
     server = Application.get_env(:symphony_elixir, :surfer_orchestrator_server, Orchestrator)
+    opts = Keyword.put(opts, :record_status, false)
 
     case Orchestrator.cancel_run(server, run_id, opts) do
       {:ok, _cancelled} -> :ok

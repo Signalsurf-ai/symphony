@@ -40,6 +40,74 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert {:ok, %{"status" => "cancelled"}} = RunLedger.get_run(db_path, request.run_id)
   end
 
+  test "lifecycle cancel reports queued Linear run cancellation to the source session", %{db_path: db_path} do
+    previous_activity_fun = Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun)
+    on_exit(fn -> restore_app_env(:surfer_linear_session_activity_fun, previous_activity_fun) end)
+
+    request = claimed_linear_request!(db_path, "session-cancel-success")
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_session_activity_fun, fn session_id, type, body ->
+      send(parent, {:linear_cancel_activity, session_id, type, body})
+      :ok
+    end)
+
+    assert :ok = Lifecycle.cancel(db_path, request.run_id, actor: "operator:test", reason: "no longer needed")
+
+    assert_receive {:linear_cancel_activity, "session-cancel-success", :error, body}
+    assert body =~ "Surfer run #{request.run_id} cancelled: no longer needed"
+
+    assert {:ok, %{"status" => "cancelled"}} = RunLedger.get_run(db_path, request.run_id)
+    assert {:ok, events} = RunLedger.list_events(db_path, request.run_id)
+    assert status_transition_payload(events, "cancelled")["external_write_status"]["linear"] == "posted"
+  end
+
+  test "lifecycle cancel queues pending Linear cancellation report when source write fails", %{db_path: db_path} do
+    previous_activity_fun = Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun)
+    on_exit(fn -> restore_app_env(:surfer_linear_session_activity_fun, previous_activity_fun) end)
+
+    request = claimed_linear_request!(db_path, "session-cancel-fail")
+
+    Application.put_env(:symphony_elixir, :surfer_linear_session_activity_fun, fn _session_id, _type, _body ->
+      {:error, {:linear_down, "Authorization: Bearer linear-secret"}}
+    end)
+
+    assert :ok = Lifecycle.cancel(db_path, request.run_id, actor: "operator:test", reason: "operator cancelled")
+
+    external_id = "session-cancel-fail:error:#{request.run_id}"
+    assert {:ok, events} = RunLedger.list_events(db_path, request.run_id)
+
+    assert Enum.any?(events, fn event ->
+             event["event_type"] == "pending_write" and event["platform"] == "linear" and
+               event["external_id"] == external_id and event["payload_json"] =~ "operator cancelled"
+           end)
+
+    refute Enum.any?(events, &String.contains?(&1["payload_json"], "linear-secret"))
+    assert status_transition_payload(events, "cancelled")["external_write_status"]["linear"] == "pending"
+  end
+
+  test "lifecycle cancel reports queued Discord run cancellation to the source channel", %{db_path: db_path} do
+    previous_discord_post_fun = Application.get_env(:symphony_elixir, :surfer_discord_post_fun)
+    on_exit(fn -> restore_app_env(:surfer_discord_post_fun, previous_discord_post_fun) end)
+
+    request = claimed_request!(db_path)
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_post_fun, fn channel_id, body ->
+      send(parent, {:discord_cancel_message, channel_id, body})
+      :ok
+    end)
+
+    assert :ok = Lifecycle.cancel(db_path, request.run_id, actor: "operator:test", reason: "duplicate request")
+
+    assert_receive {:discord_cancel_message, "channel-1", body}
+    assert body =~ "Surfer run #{request.run_id} cancelled: duplicate request"
+
+    assert {:ok, %{"status" => "cancelled"}} = RunLedger.get_run(db_path, request.run_id)
+    assert {:ok, events} = RunLedger.list_events(db_path, request.run_id)
+    assert status_transition_payload(events, "cancelled")["external_write_status"]["discord"] == "posted"
+  end
+
   test "retry creates a linked queued run without mutating the failed run", %{db_path: db_path} do
     request = claimed_request!(db_path)
 

@@ -6,15 +6,162 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
   require Logger
 
   alias SymphonyElixir.Config
+  alias SymphonyElixir.Surfer.Discord.Notifier, as: DiscordNotifier
   alias SymphonyElixir.Surfer.Linear.Session
   alias SymphonyElixir.Surfer.{Metrics, RunLedger, RunRequest, SecretRedactor}
 
   @spec cancel(Path.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def cancel(db_path, run_id, opts \\ []) when is_binary(run_id) do
-    RunLedger.update_status(db_path, run_id, "cancelled",
-      reason: Keyword.get(opts, :reason, "cancelled by operator"),
-      actor: Keyword.get(opts, :actor, "operator")
-    )
+    reason = Keyword.get(opts, :reason, "cancelled by operator")
+
+    with {:ok, run} <- RunLedger.get_run(db_path, run_id),
+         :ok <- RunLedger.validate_status_transition(db_path, run_id, "cancelled") do
+      write_status = report_cancelled_to_source(db_path, run, reason)
+
+      RunLedger.update_status(db_path, run_id, "cancelled",
+        reason: reason,
+        actor: Keyword.get(opts, :actor, "operator"),
+        external_write_status: write_status
+      )
+    end
+  end
+
+  defp report_cancelled_to_source(db_path, %{"id" => run_id, "source_platform" => "linear"} = run, reason) do
+    session_id = Map.get(run, "linear_agent_session_id")
+    body = cancellation_body(run_id, reason)
+
+    case present_string(session_id) do
+      {:ok, session_id} ->
+        %{linear: post_linear_cancellation(db_path, run_id, session_id, body)}
+
+      :error ->
+        %{}
+    end
+  end
+
+  defp report_cancelled_to_source(db_path, %{"id" => run_id, "source_platform" => "discord"} = run, reason) do
+    channel_id = Map.get(run, "discord_channel_id")
+    body = cancellation_body(run_id, reason)
+
+    case present_string(channel_id) do
+      {:ok, channel_id} ->
+        %{discord: post_discord_cancellation(db_path, run_id, channel_id, body)}
+
+      :error ->
+        %{}
+    end
+  end
+
+  defp report_cancelled_to_source(_db_path, _run, _reason), do: %{}
+
+  defp cancellation_body(run_id, reason), do: "Surfer run #{run_id} cancelled: #{to_string(reason)}"
+
+  defp present_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> :error
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp present_string(_value), do: :error
+
+  defp post_linear_cancellation(db_path, run_id, session_id, body) do
+    case call_linear_activity(session_id, :error, body) do
+      :ok ->
+        "posted"
+
+      {:error, reason} ->
+        record_pending_linear_activity_write(db_path, run_id, session_id, :error, body, reason)
+        "pending"
+
+      other ->
+        reason = {:unexpected_linear_activity_result, other}
+        record_pending_linear_activity_write(db_path, run_id, session_id, :error, body, reason)
+        "pending"
+    end
+  end
+
+  defp call_linear_activity(session_id, type, body) when is_atom(type) and is_binary(body) do
+    case Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun) do
+      fun when is_function(fun, 3) ->
+        fun.(session_id, type, body)
+
+      _ ->
+        case type do
+          :error -> Session.error(session_id, body)
+        end
+    end
+  end
+
+  defp record_pending_linear_activity_write(db_path, run_id, session_id, type, body, reason) do
+    external_id = "#{session_id}:#{type}:#{run_id}"
+
+    payload = %{
+      type: to_string(type),
+      session_id: session_id,
+      body: body,
+      error: safe_inspect(reason)
+    }
+
+    record_pending_platform_write(db_path, run_id, "linear", external_id, payload, reason)
+  end
+
+  defp post_discord_cancellation(db_path, run_id, channel_id, body) do
+    case call_discord_message(channel_id, body) do
+      :ok ->
+        "posted"
+
+      {:error, reason} ->
+        record_pending_discord_channel_write(db_path, run_id, channel_id, body, reason)
+        "pending"
+
+      other ->
+        reason = {:unexpected_discord_message_result, other}
+        record_pending_discord_channel_write(db_path, run_id, channel_id, body, reason)
+        "pending"
+    end
+  end
+
+  defp call_discord_message(channel_id, body) do
+    case Application.get_env(:symphony_elixir, :surfer_discord_post_fun) do
+      fun when is_function(fun, 2) ->
+        fun.(channel_id, body)
+
+      _ ->
+        DiscordNotifier.post_message(channel_id, body, bot_token: Config.settings!().surfer.platforms.discord.bot_token)
+    end
+  end
+
+  defp record_pending_discord_channel_write(db_path, run_id, channel_id, body, reason) do
+    external_id = "#{channel_id}:channel_message:#{run_id}"
+
+    payload = %{
+      type: "channel_message",
+      channel_id: channel_id,
+      body: body,
+      error: safe_inspect(reason)
+    }
+
+    record_pending_platform_write(db_path, run_id, "discord", external_id, payload, reason)
+  end
+
+  defp record_pending_platform_write(db_path, run_id, platform, external_id, payload, reason) do
+    Metrics.emit(:platform_write_failures, %{count: 1}, %{
+      run_id: run_id,
+      platform: platform,
+      external_id: external_id,
+      reason: safe_inspect(reason)
+    })
+
+    case RunLedger.record_pending_write(db_path, run_id, %{
+           platform: platform,
+           external_id: external_id,
+           idempotency_hash: idempotency_hash(payload),
+           payload: payload
+         }) do
+      :ok -> :ok
+      {:error, pending_reason} -> Logger.warning("Failed to record pending cancellation write run_id=#{run_id} platform=#{platform}: #{safe_inspect(pending_reason)}")
+    end
   end
 
   @spec takeover(Path.t(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -106,8 +253,11 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
     end
   end
 
-  defp external_write_status(linear: "skipped"), do: %{}
-  defp external_write_status(linear: status), do: %{linear: status}
+  defp external_write_status(statuses) do
+    statuses
+    |> Enum.reject(fn {_platform, status} -> status in ["skipped", :skipped, nil] end)
+    |> Map.new(fn {platform, status} -> {platform, to_string(status)} end)
+  end
 
   defp github_pr_external_urls(run_id, pr_url) do
     []
