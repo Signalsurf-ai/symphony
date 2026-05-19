@@ -400,6 +400,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
       {:error, :missing_discord_channel_id} ->
         error_response(conn, 400, "missing_discord_channel_id", "Discord channel id is required")
 
+      {:error, :missing_discord_lifecycle_run_id} ->
+        error_response(conn, 400, "missing_discord_lifecycle_run_id", "Discord lifecycle run id is required")
+
       {:error, reason} ->
         error_response(conn, 400, "unsupported_discord_interaction", safe_inspect(reason))
     end

@@ -153,6 +153,20 @@ defmodule SymphonyElixir.SurferPlatformsTest do
            end)
   end
 
+  test "Discord lifecycle interactions require a run id" do
+    interaction = %{
+      "id" => "interaction-missing-run-id",
+      "application_id" => "app-1",
+      "type" => 2,
+      "guild_id" => "guild-1",
+      "channel_id" => "channel-1",
+      "member" => %{"user" => %{"id" => "user-1"}},
+      "data" => %{"name" => "surfer", "options" => [%{"name" => "cancel", "type" => 1, "options" => []}]}
+    }
+
+    assert {:error, :missing_discord_lifecycle_run_id} = Discord.Interaction.to_run_request(interaction)
+  end
+
   test "Discord command registration upserts Surfer command in the configured guild" do
     parent = self()
 

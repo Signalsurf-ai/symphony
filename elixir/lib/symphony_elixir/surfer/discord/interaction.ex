@@ -24,6 +24,7 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
     with :ok <- authorize("guild", Map.get(interaction, "guild_id"), allowed_guilds),
          :ok <- authorize("channel", Map.get(interaction, "channel_id"), allowed_channels),
          {:ok, interaction_id} <- required_interaction_id(Map.get(interaction, "id")),
+         :ok <- validate_command(command),
          {:ok, request} <- interaction |> interaction_message(command) |> RunRequest.from_discord_message() do
       request = apply_command(request, command)
       request = put_in(request.request[:trigger_type], :slash_command)
@@ -67,6 +68,12 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
 
   defp required_interaction_id(value) when is_binary(value) and value != "", do: {:ok, value}
   defp required_interaction_id(_value), do: {:error, :missing_discord_interaction_id}
+
+  defp validate_command(%{name: name, run_id: run_id}) when name in ["cancel", "retry", "takeover"] do
+    if present?(run_id), do: :ok, else: {:error, :missing_discord_lifecycle_run_id}
+  end
+
+  defp validate_command(_command), do: :ok
 
   defp interaction_message(interaction, command) do
     %{
@@ -173,4 +180,7 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
   end
 
   defp option_value(_options, _name), do: nil
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
 end
