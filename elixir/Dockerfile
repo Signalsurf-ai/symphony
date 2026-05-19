@@ -35,7 +35,6 @@ RUN apt-get update \
     nodejs \
     npm \
     openssh-client \
-    sqlite3 \
   && npm install -g "@openai/codex@${CODEX_NPM_VERSION}" \
   && useradd --create-home --uid 10001 --shell /bin/bash surfer \
   && mkdir -p /app /srv/surfer/workspaces /srv/surfer/logs /srv/surfer/state /home/surfer/.codex \

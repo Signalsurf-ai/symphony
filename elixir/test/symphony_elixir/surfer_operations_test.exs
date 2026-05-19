@@ -581,6 +581,12 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert dockerfile =~ "http://127.0.0.1:4000/api/v1/state"
   end
 
+  test "Docker image does not install the host sqlite3 CLI for the ledger" do
+    dockerfile = File.read!(Path.expand("../../Dockerfile", __DIR__))
+
+    refute dockerfile =~ ~r/^\s*sqlite3\s*\\/m
+  end
+
   test "Docker compose layers example env with optional local secret override" do
     compose = YamlElixir.read_from_file!(Path.expand("../../docker-compose.surfer.yml", __DIR__))
 
