@@ -260,6 +260,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
 
     cond do
       String.trim(directive) == "" -> {:durable_task, :delegation}
+      linear_advisory_question?(directive) -> {:code_question, :mention}
       linear_implementation_request?(directive) -> {:durable_task, :delegation}
       true -> {:code_question, :mention}
     end
@@ -281,13 +282,29 @@ defmodule SymphonyElixir.Surfer.RunRequest do
     first_present([issue.description, directive, map_text(comment, "body"), issue.title])
   end
 
+  defp linear_advisory_question?(directive) do
+    normalized = normalize_directive(directive)
+
+    Regex.match?(
+      ~r/\A(what|where|when|why|which|who|whose|how|can you explain|could you explain|please explain|explain|show me|walk me through|help me understand|what would|how would|how should|should we|can we|could we|would it|is it|are there|do we|does this|tell me)\b/,
+      normalized
+    )
+  end
+
   defp linear_implementation_request?(directive) do
-    normalized = directive |> String.downcase() |> String.replace(~r/[^a-z0-9+#._-]+/u, " ")
+    normalized = normalize_directive(directive)
 
     Regex.match?(
       ~r/\b(implement|fix|build|add|update|change|refactor|create|write|code|patch|repair|solve|resolve|address|ship|land|open pr|raise pr|create pr|submit pr|make a pr|work on|take over|handle this)\b/,
       normalized
     )
+  end
+
+  defp normalize_directive(directive) do
+    directive
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9+#._-]+/u, " ")
+    |> String.trim()
   end
 
   defp primary_directive_text(value) when is_binary(value) do

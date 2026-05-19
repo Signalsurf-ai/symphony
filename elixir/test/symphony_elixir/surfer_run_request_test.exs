@@ -111,6 +111,25 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert RunRequest.idempotency_key(work_request) == "linear:session-prompted:prompted:activity-work:durable_task"
   end
 
+  test "keeps advisory Linear phrasing read-only even when it mentions implementation verbs" do
+    advisory = %{
+      "type" => "AgentSessionEvent",
+      "action" => "created",
+      "agentSession" => %{
+        "id" => "session-advisory",
+        "issue" => %{"id" => "issue-advisory", "identifier" => "ENG-4", "title" => "Routing", "state" => %{"name" => "Todo"}},
+        "comment" => %{"id" => "comment-advisory", "body" => "How should we fix the routing flow?"}
+      }
+    }
+
+    assert {:ok, request} = RunRequest.from_linear_agent_session_event(advisory)
+
+    assert request.source.trigger_type == :mention
+    assert request.request.mode == :code_question
+    assert request.request.body == "How should we fix the routing flow?"
+    assert RunRequest.idempotency_key(request) == "linear:session-advisory:created:comment-advisory:code_question"
+  end
+
   test "surfer context exposes a bounded redacted platform prompt context" do
     prompt_context =
       """
