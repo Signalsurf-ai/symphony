@@ -1776,6 +1776,76 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute run["payload_json"] =~ "ambiguous-token"
   end
 
+  test "Discord interaction pause returns an immediate response without original-response edit or dispatch" do
+    {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
+    on_exit(fn -> restore_env("DISCORD_PUBLIC_KEY", previous_public_key) end)
+    System.put_env("DISCORD_PUBLIC_KEY", Base.encode16(public_key, case: :lower))
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-paused-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        paused: true
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            public_key: $DISCORD_PUBLIC_KEY
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request})
+      :ok
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_response_fun, fn application_id, token, body ->
+      send(parent, {:original_response_edit, application_id, token, body})
+      :ok
+    end)
+
+    command_body =
+      Jason.encode!(%{
+        id: "interaction-paused-1",
+        application_id: "app-1",
+        token: "paused-token",
+        type: 2,
+        guild_id: "guild-1",
+        channel_id: "channel-1",
+        member: %{user: %{id: "paused-user-1"}},
+        data: %{name: "surfer", options: [%{name: "ask", type: 1, options: [%{name: "prompt", type: 3, value: "where is routing handled?"}]}]}
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_signature_headers(command_body, private_key)
+      |> post("/webhooks/discord/interactions", command_body)
+
+    assert %{"type" => 4, "data" => %{"content" => content}} = json_response(conn, 200)
+    assert content =~ "paused"
+    assert content =~ "not dispatched"
+    refute_receive {:unexpected_dispatch, _request}, 100
+    refute_receive {:original_response_edit, "app-1", "paused-token", _body}, 100
+
+    assert {:ok, run_id} = RunLedger.lookup_idempotency_key(db_path, "discord_interaction:interaction-paused-1:code_question")
+    assert {:ok, %{"status" => "cancelled"}} = RunLedger.get_run(db_path, run_id)
+  end
+
   test "Discord interaction accepts next rotation public key" do
     {current_public_key, _current_private_key} = :crypto.generate_key(:eddsa, :ed25519)
     {next_public_key, next_private_key} = :crypto.generate_key(:eddsa, :ed25519)

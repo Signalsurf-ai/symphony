@@ -111,6 +111,8 @@ and is disabled in the Surfer workflow example.
 - Discord original-response edit failures retry within the short-lived interaction-token window
   measured from interaction receipt, emit telemetry after retry exhaustion, and fall back to a bot
   channel message without storing the interaction token.
+- Discord Interactions return an immediate paused response without editing the original interaction
+  response or dispatching when `surfer.paused: true` or `SURFER_PAUSED=true` is active.
 - Discord REST helper errors redact bot-token and interaction-token shaped values before returning
   to callers; completion, fallback, and error notification failures are recorded as retryable
   pending writes without storing interaction tokens.

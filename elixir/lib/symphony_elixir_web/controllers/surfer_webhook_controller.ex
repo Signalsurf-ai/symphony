@@ -357,18 +357,26 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
       {:ok, request} ->
         raw_message = put_discord_interaction_retry_deadline(params, received_at_ms)
 
-        with {:ok, response} <- claim_run(request, :discord),
-             :ok <- maybe_dispatch_discord(response, request, raw_message, discord) do
-          json(conn, %{type: 5})
+        with {:ok, response} <- claim_run(request, :discord) do
+          case maybe_dispatch_discord_interaction(response, request, raw_message, discord) do
+            :deferred ->
+              json(conn, %{type: 5})
+
+            {:immediate_response, message} ->
+              json(conn, %{type: 4, data: %{content: message}})
+
+            {:error, :rate_limited} ->
+              json(conn, %{type: 4, data: %{content: "Surfer rate limit exceeded. Try again later."}})
+
+            {:error, reason} ->
+              error_response(conn, 500, "surfer_dispatch_failed", safe_inspect(reason))
+          end
         else
           {:error, :rate_limited} ->
             json(conn, %{type: 4, data: %{content: "Surfer rate limit exceeded. Try again later."}})
 
           {:error, {:ledger_claim_failed, reason}} ->
             error_response(conn, 503, "ledger_claim_failed", "Surfer run ledger claim failed: #{safe_inspect(reason)}")
-
-          {:error, reason} ->
-            error_response(conn, 500, "surfer_dispatch_failed", safe_inspect(reason))
         end
 
       {:error, {:unauthorized_guild, _guild_id}} ->
@@ -683,6 +691,20 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     case dispatch_linear_request(request) do
       :ok -> :ok
       {:error, reason} -> post_linear_error(request, reason)
+    end
+  end
+
+  defp maybe_dispatch_discord_interaction(%{duplicate: true}, _request, _raw_message, _discord), do: :deferred
+
+  defp maybe_dispatch_discord_interaction(response, request, raw_message, discord) do
+    if surfer_paused?() do
+      record_cancelled_run(response.run_id, "Surfer is paused")
+      {:immediate_response, "Surfer is paused; request #{response.run_id} was not dispatched."}
+    else
+      case maybe_dispatch_discord(response, request, raw_message, discord) do
+        :ok -> :deferred
+        other -> other
+      end
     end
   end
 
