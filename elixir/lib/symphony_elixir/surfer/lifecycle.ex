@@ -62,24 +62,29 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
                state: pr_context.state,
                url: pr_context.url
              }
-           }) do
-      with :ok <-
-             RunLedger.update_status(db_path, run_id, "awaiting_review",
-               reason: Keyword.get(opts, :reason, "GitHub PR opened"),
-               actor: Keyword.get(opts, :actor, "surfer")
-             ) do
-        maybe_update_linear_pr_external_url(db_path, run_id, pr_context)
-      end
+           }),
+         :ok <- RunLedger.validate_status_transition(db_path, run_id, "awaiting_review") do
+      linear_write_status = maybe_update_linear_pr_external_url(db_path, run_id, pr_context)
+
+      RunLedger.update_status(db_path, run_id, "awaiting_review",
+        reason: Keyword.get(opts, :reason, "GitHub PR opened"),
+        actor: Keyword.get(opts, :actor, "surfer"),
+        external_write_status: external_write_status(linear: linear_write_status)
+      )
     end
   end
 
   defp maybe_update_linear_pr_external_url(db_path, run_id, pr_context) do
     case RunLedger.get_run(db_path, run_id) do
       {:ok, %{"linear_agent_session_id" => session_id}} when is_binary(session_id) ->
-        update_linear_pr_external_url(db_path, run_id, session_id, pr_context)
+        if String.trim(session_id) == "" do
+          "skipped"
+        else
+          update_linear_pr_external_url(db_path, run_id, session_id, pr_context)
+        end
 
       _ ->
-        :ok
+        "skipped"
     end
   end
 
@@ -88,18 +93,21 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
 
     case call_linear_external_urls(session_id, urls) do
       :ok ->
-        :ok
+        "posted"
 
       {:error, reason} ->
         record_pending_external_url_write(db_path, run_id, session_id, urls, reason)
-        :ok
+        "pending"
 
       other ->
         reason = {:unexpected_external_url_result, other}
         record_pending_external_url_write(db_path, run_id, session_id, urls, reason)
-        :ok
+        "pending"
     end
   end
+
+  defp external_write_status(linear: "skipped"), do: %{}
+  defp external_write_status(linear: status), do: %{linear: status}
 
   defp github_pr_external_urls(run_id, pr_url) do
     []

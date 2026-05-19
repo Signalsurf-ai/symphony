@@ -145,6 +145,9 @@ defmodule SymphonyElixir.SurferOperationsTest do
 
     assert_receive {:linear_external_urls, "session-pr-url-success", urls}
     assert Enum.any?(urls, &(&1 == %{label: "GitHub PR", url: "https://github.com/acme/web/pull/42"}))
+
+    assert {:ok, events} = RunLedger.list_events(db_path, request.run_id)
+    assert status_transition_payload(events, "awaiting_review")["external_write_status"]["linear"] == "posted"
   end
 
   test "GitHub PR open queues pending Linear external URL update when the write fails", %{db_path: db_path} do
@@ -206,6 +209,8 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert metadata.external_id == external_id
     assert metadata.reason =~ "[REDACTED]"
     refute metadata.reason =~ "linear-secret"
+
+    assert status_transition_payload(events, "awaiting_review")["external_write_status"]["linear"] == "pending"
   end
 
   test "operator lookup returns a redacted run, events, and links", %{db_path: db_path} do
@@ -994,6 +999,16 @@ defmodule SymphonyElixir.SurferOperationsTest do
              })
 
     request
+  end
+
+  defp status_transition_payload(events, to_status) do
+    events
+    |> Enum.find(fn event ->
+      event["event_type"] == "status_transition" and
+        event["payload_json"] |> Jason.decode!() |> Map.get("to") == to_status
+    end)
+    |> Map.fetch!("payload_json")
+    |> Jason.decode!()
   end
 
   defp codex_health_settings(codex) do

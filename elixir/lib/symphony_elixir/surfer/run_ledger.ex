@@ -403,6 +403,16 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     result
   end
 
+  @spec validate_status_transition(Path.t(), String.t(), String.t()) :: :ok | {:error, term()}
+  def validate_status_transition(db_path, run_id, next_status)
+      when is_binary(run_id) and is_binary(next_status) do
+    with_conn(db_path, fn conn ->
+      with {:ok, current_status} <- current_status(conn, run_id) do
+        validate_transition(current_status, next_status)
+      end
+    end)
+  end
+
   defp emit_claim_result({:ok, %{status: :claimed, run_id: run_id}}, request) do
     Metrics.emit(:runs_started, %{count: 1}, %{
       run_id: run_id,

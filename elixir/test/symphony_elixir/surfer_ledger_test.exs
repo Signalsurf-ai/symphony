@@ -310,6 +310,11 @@ defmodule SymphonyElixir.SurferLedgerTest do
     assert {:ok, run} = RunLedger.get_run(db_path, request.run_id)
     assert run["status"] == "running"
 
+    assert :ok = RunLedger.validate_status_transition(db_path, request.run_id, "awaiting_review")
+
+    assert {:error, {:invalid_transition, "running", "queued"}} =
+             RunLedger.validate_status_transition(db_path, request.run_id, "queued")
+
     assert {:error, {:invalid_transition, "running", "queued"}} =
              RunLedger.update_status(db_path, request.run_id, "queued", reason: "rewind")
   end
