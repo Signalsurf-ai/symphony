@@ -26,11 +26,14 @@ defmodule SymphonyElixirWeb.ObservabilityApiController do
 
   @spec refresh(Conn.t(), map()) :: Conn.t()
   def refresh(conn, _params) do
-    case Presenter.refresh_payload(orchestrator()) do
-      {:ok, payload} ->
-        conn
-        |> put_status(202)
-        |> json(payload)
+    with :ok <- require_loopback(conn),
+         {:ok, payload} <- Presenter.refresh_payload(orchestrator()) do
+      conn
+      |> put_status(202)
+      |> json(payload)
+    else
+      {:error, :forbidden} ->
+        error_response(conn, 403, "observability_refresh_forbidden", "Observability refresh is loopback-only")
 
       {:error, :unavailable} ->
         error_response(conn, 503, "orchestrator_unavailable", "Orchestrator is unavailable")
@@ -52,6 +55,14 @@ defmodule SymphonyElixirWeb.ObservabilityApiController do
     |> put_status(status)
     |> json(%{error: %{code: code, message: message}})
   end
+
+  defp require_loopback(%Conn{remote_ip: remote_ip}) do
+    if loopback?(remote_ip), do: :ok, else: {:error, :forbidden}
+  end
+
+  defp loopback?({127, _, _, _}), do: true
+  defp loopback?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
+  defp loopback?(_remote_ip), do: false
 
   defp orchestrator do
     Endpoint.config(:orchestrator) || SymphonyElixir.Orchestrator

@@ -463,6 +463,35 @@ defmodule SymphonyElixir.ExtensionsTest do
              }
   end
 
+  test "phoenix observability refresh is loopback-only" do
+    orchestrator_name = Module.concat(__MODULE__, :RefreshLoopbackOrchestrator)
+
+    {:ok, _pid} =
+      StaticOrchestrator.start_link(
+        name: orchestrator_name,
+        snapshot: static_snapshot(),
+        refresh: %{
+          queued: true,
+          coalesced: false,
+          requested_at: DateTime.utc_now(),
+          operations: ["poll", "reconcile"]
+        }
+      )
+
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    conn =
+      %{build_conn() | remote_ip: {203, 0, 113, 10}}
+      |> post("/api/v1/refresh", %{})
+
+    assert json_response(conn, 403) == %{
+             "error" => %{
+               "code" => "observability_refresh_forbidden",
+               "message" => "Observability refresh is loopback-only"
+             }
+           }
+  end
+
   test "phoenix observability api preserves snapshot timeout behavior" do
     timeout_orchestrator = Module.concat(__MODULE__, :TimeoutOrchestrator)
     {:ok, _pid} = SlowOrchestrator.start_link(name: timeout_orchestrator)
