@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Surfer.GitHub.PullRequest do
   Outbound-only GitHub pull request creation/update helper for Surfer.
   """
 
+  alias SymphonyElixir.Surfer.SecretRedactor
+
   @api_base "https://api.github.com"
 
   @spec create_or_update(map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -160,7 +162,7 @@ defmodule SymphonyElixir.Surfer.GitHub.PullRequest do
       id: Map.get(review, "id"),
       state: Map.get(review, "state"),
       author: get_in(review, ["user", "login"]),
-      body: Map.get(review, "body"),
+      body: redact_body(Map.get(review, "body")),
       submitted_at: Map.get(review, "submitted_at"),
       url: Map.get(review, "html_url")
     }
@@ -175,7 +177,7 @@ defmodule SymphonyElixir.Surfer.GitHub.PullRequest do
       path: Map.get(comment, "path"),
       line: Map.get(comment, "line"),
       author: get_in(comment, ["user", "login"]),
-      body: Map.get(comment, "body"),
+      body: redact_body(Map.get(comment, "body")),
       url: Map.get(comment, "html_url")
     }
   end
@@ -199,6 +201,9 @@ defmodule SymphonyElixir.Surfer.GitHub.PullRequest do
       authority: :github_pr_context
     }
   end
+
+  defp redact_body(body) when is_binary(body), do: SecretRedactor.redact_text(body)
+  defp redact_body(body), do: body
 
   defp request(method, path, body, token) do
     request =

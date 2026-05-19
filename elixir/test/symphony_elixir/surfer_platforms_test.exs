@@ -439,7 +439,7 @@ defmodule SymphonyElixir.SurferPlatformsTest do
              %{
                "id" => 100,
                "state" => "CHANGES_REQUESTED",
-               "body" => "Needs test coverage.",
+               "body" => "Needs test coverage. Authorization: Bearer review-secret",
                "user" => %{"login" => "reviewer"},
                "submitted_at" => "2026-05-19T01:02:03Z",
                "html_url" => "https://github.com/acme/web/pull/42#pullrequestreview-100"
@@ -453,7 +453,7 @@ defmodule SymphonyElixir.SurferPlatformsTest do
                "id" => 200,
                "path" => "lib/router.ex",
                "line" => 12,
-               "body" => "Handle ambiguity here.",
+               "body" => "Handle ambiguity here. api_key=comment-secret",
                "user" => %{"login" => "reviewer"},
                "html_url" => "https://github.com/acme/web/pull/42#discussion_r200"
              }
@@ -479,13 +479,25 @@ defmodule SymphonyElixir.SurferPlatformsTest do
                id: 100,
                state: "CHANGES_REQUESTED",
                author: "reviewer",
-               body: "Needs test coverage.",
+               body: "Needs test coverage. Authorization: Bearer [REDACTED]",
                submitted_at: "2026-05-19T01:02:03Z",
                url: "https://github.com/acme/web/pull/42#pullrequestreview-100"
              }
            ]
 
-    assert context.comments == [%{id: 200, path: "lib/router.ex", line: 12, author: "reviewer", body: "Handle ambiguity here.", url: "https://github.com/acme/web/pull/42#discussion_r200"}]
+    assert context.comments == [
+             %{
+               id: 200,
+               path: "lib/router.ex",
+               line: 12,
+               author: "reviewer",
+               body: "Handle ambiguity here. api_key=[REDACTED]",
+               url: "https://github.com/acme/web/pull/42#discussion_r200"
+             }
+           ]
+
+    refute inspect(context) =~ "review-secret"
+    refute inspect(context) =~ "comment-secret"
     assert context.files == [%{filename: "lib/router.ex", status: "modified", changes: 8}]
     assert context.provenance == %{repo: "acme/web", pr_number: 42, source_url: "https://github.com/acme/web/pull/42", authority: :github_pr_context}
 
