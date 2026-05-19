@@ -777,8 +777,8 @@ defmodule SymphonyElixir.Surfer.RunLedger do
         run_id,
         value(event, :event_type),
         value(event, :platform) |> maybe_to_string(),
-        value(event, :external_id),
-        value(event, :idempotency_hash),
+        value(event, :external_id) |> redacted_optional(),
+        value(event, :idempotency_hash) |> redacted_optional(),
         encode_payload(value(event, :payload) || %{}),
         created_at
       ]

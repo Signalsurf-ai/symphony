@@ -130,9 +130,9 @@ and is disabled in the Surfer workflow example.
 - Local embedded SQLite run/event/link/idempotency ledger with natural-key atomic claims, status
   transitions, indexes, pending-write events, pending-write requeue result events, budget usage
   events, retry links, bounded transient claim retry, claim-failure 503s before dispatch,
-  embedded backup/integrity-check/restore helpers, redacted status error messages and link
-  URL/external IDs, redacted per-run JSONL event logs, loopback-only backup creation, and
-  redacted operator lookup data including raw platform payload containers.
+  embedded backup/integrity-check/restore helpers, redacted status error messages, redacted
+  event/link external IDs and link URLs, redacted per-run JSONL event logs, loopback-only backup
+  creation, and redacted operator lookup data including raw platform payload containers.
 - Loopback-only run lookup at `/api/v1/surfer/runs/:run_id`.
 - Loopback-only operator pause/unpause plus run controls for cancel, retry, and takeover.
 - Loopback-only pending platform-write requeue at `/api/v1/surfer/outbox/requeue`.

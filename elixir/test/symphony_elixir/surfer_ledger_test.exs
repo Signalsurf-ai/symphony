@@ -300,6 +300,33 @@ defmodule SymphonyElixir.SurferLedgerTest do
     refute link["url"] =~ "url-link-secret"
   end
 
+  test "redacts secret-shaped event columns before persisting them", %{db_path: db_path} do
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-redacted-event-columns",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    assert :ok = RunLedger.upsert_run(db_path, request, status: "queued")
+
+    assert :ok =
+             RunLedger.record_event(db_path, request.run_id, %{
+               event_type: "pending_write",
+               platform: "discord",
+               external_id: "discord_interaction_token=event-column-secret",
+               idempotency_hash: "access_token=hash-column-secret",
+               payload: %{ok: true}
+             })
+
+    assert {:ok, [event]} = RunLedger.list_events(db_path, request.run_id)
+    assert event["external_id"] == "discord_interaction_token=[REDACTED]"
+    assert event["idempotency_hash"] == "access_token=[REDACTED]"
+    refute event["external_id"] =~ "event-column-secret"
+    refute event["idempotency_hash"] =~ "hash-column-secret"
+  end
+
   test "records pending platform writes as outbox events", %{db_path: db_path} do
     assert {:ok, request} =
              RunRequest.from_discord_message(%{
