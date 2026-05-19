@@ -1028,8 +1028,12 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     CREATE INDEX IF NOT EXISTS runs_status_updated_at_idx ON runs(status, updated_at);
     CREATE INDEX IF NOT EXISTS runs_discord_actor_created_at_idx ON runs(source_platform, actor_id, created_at);
     CREATE INDEX IF NOT EXISTS runs_discord_channel_created_at_idx ON runs(source_platform, discord_channel_id, created_at);
+    CREATE INDEX IF NOT EXISTS runs_linear_session_status_idx ON runs(source_platform, linear_agent_session_id, status);
+    CREATE INDEX IF NOT EXISTS runs_discord_channel_status_idx ON runs(source_platform, discord_channel_id, status);
     CREATE INDEX IF NOT EXISTS run_events_run_id_idx ON run_events(run_id);
     CREATE INDEX IF NOT EXISTS run_events_external_id_idx ON run_events(external_id);
+    CREATE INDEX IF NOT EXISTS run_events_type_created_at_idx ON run_events(event_type, created_at);
+    CREATE INDEX IF NOT EXISTS run_events_pending_write_lookup_idx ON run_events(event_type, run_id, external_id, idempotency_hash);
     CREATE INDEX IF NOT EXISTS run_links_run_id_idx ON run_links(run_id);
     """
   end

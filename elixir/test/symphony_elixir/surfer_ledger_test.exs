@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.SurferLedgerTest do
   use SymphonyElixir.TestSupport
 
+  alias Exqlite.Sqlite3
   alias SymphonyElixir.Surfer.{RunLedger, RunLog, RunRequest}
 
   setup do
@@ -15,6 +16,27 @@ defmodule SymphonyElixir.SurferLedgerTest do
     assert :ok = RunLedger.initialize(db_path)
 
     %{db_path: db_path}
+  end
+
+  test "initializes composite indexes for run and outbox coordination", %{db_path: db_path} do
+    assert {:ok, rows} =
+             sqlite_query(
+               db_path,
+               "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('runs', 'run_events');",
+               []
+             )
+
+    index_names = rows |> Enum.map(& &1["name"]) |> MapSet.new()
+
+    assert MapSet.subset?(
+             MapSet.new([
+               "runs_linear_session_status_idx",
+               "runs_discord_channel_status_idx",
+               "run_events_type_created_at_idx",
+               "run_events_pending_write_lookup_idx"
+             ]),
+             index_names
+           )
   end
 
   test "stores run, event, link, and idempotency records in SQLite", %{db_path: db_path} do
@@ -690,5 +712,44 @@ defmodule SymphonyElixir.SurferLedgerTest do
              })
 
     request
+  end
+
+  defp sqlite_query(db_path, sql, params) do
+    case Sqlite3.open(db_path, mode: :readonly) do
+      {:ok, conn} ->
+        try do
+          query_all(conn, sql, params)
+        after
+          _ = Sqlite3.close(conn)
+        end
+
+      {:error, reason} ->
+        {:error, {:sqlite, reason}}
+    end
+  end
+
+  defp query_all(conn, sql, params) do
+    case Sqlite3.prepare(conn, sql) do
+      {:ok, stmt} ->
+        try do
+          :ok = Sqlite3.bind(stmt, params)
+
+          with {:ok, columns} <- Sqlite3.columns(conn, stmt),
+               {:ok, rows} <- Sqlite3.fetch_all(conn, stmt) do
+            {:ok, Enum.map(rows, &row_to_map(columns, &1))}
+          end
+        after
+          _ = Sqlite3.release(conn, stmt)
+        end
+
+      {:error, reason} ->
+        {:error, {:sqlite, reason}}
+    end
+  end
+
+  defp row_to_map(columns, row) do
+    columns
+    |> Enum.zip(row)
+    |> Map.new()
   end
 end
