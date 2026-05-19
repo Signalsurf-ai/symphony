@@ -415,6 +415,36 @@ defmodule SymphonyElixir.SurferPlatformsTest do
              )
   end
 
+  test "GitHub pull request helper redacts token-shaped API errors" do
+    api_fun = fn
+      :get, "/repos/acme/web/pulls?state=open&head=acme%3Asurfer%2Fleak", nil, "github-token" ->
+        {:error,
+         {:github_http_error, 500,
+          %{
+            "message" => "Authorization: Bearer github-secret api_key=github-api-key",
+            "token" => "raw-token"
+          }}}
+    end
+
+    assert {:error, {:github_http_error, 500, error_body}} =
+             GitHub.PullRequest.create_or_update(
+               %{
+                 repo: "acme/web",
+                 head: "surfer/leak",
+                 title: "Fix leak",
+                 body: "Surfer run surf_run_3",
+                 token: "github-token"
+               },
+               api_fun: api_fun
+             )
+
+    assert error_body["message"] == "Authorization: Bearer [REDACTED] api_key=[REDACTED]"
+    assert error_body["token"] == "[REDACTED]"
+    refute inspect(error_body) =~ "github-secret"
+    refute inspect(error_body) =~ "github-api-key"
+    refute inspect(error_body) =~ "raw-token"
+  end
+
   test "GitHub pull request helper reads PR review context with provenance" do
     parent = self()
 

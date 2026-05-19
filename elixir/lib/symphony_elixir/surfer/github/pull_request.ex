@@ -11,30 +11,36 @@ defmodule SymphonyElixir.Surfer.GitHub.PullRequest do
   def create_or_update(attrs, opts \\ []) when is_map(attrs) do
     api_fun = Keyword.get(opts, :api_fun, &request/4)
 
-    with {:ok, input} <- normalize_input(attrs),
-         {:ok, existing_pr} <- find_existing_pr(input, api_fun) do
-      create_or_update_existing(input, existing_pr, api_fun)
-    end
+    result =
+      with {:ok, input} <- normalize_input(attrs),
+           {:ok, existing_pr} <- find_existing_pr(input, api_fun) do
+        create_or_update_existing(input, existing_pr, api_fun)
+      end
+
+    redact_error(result)
   end
 
   @spec review_context(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def review_context(attrs, opts \\ []) when is_map(attrs) do
     api_fun = Keyword.get(opts, :api_fun, &request/4)
 
-    with {:ok, input} <- normalize_review_context_input(attrs),
-         {:ok, pr} <- api_fun.(:get, pull_path(input), nil, input.token),
-         {:ok, reviews} <- api_fun.(:get, pull_path(input) <> "/reviews", nil, input.token),
-         {:ok, comments} <- api_fun.(:get, pull_path(input) <> "/comments", nil, input.token),
-         {:ok, files} <- api_fun.(:get, pull_path(input) <> "/files", nil, input.token) do
-      {:ok,
-       %{
-         pull_request: normalize_context_pr(pr),
-         reviews: normalize_reviews(reviews),
-         comments: normalize_comments(comments),
-         files: normalize_files(files),
-         provenance: review_context_provenance(input, pr)
-       }}
-    end
+    result =
+      with {:ok, input} <- normalize_review_context_input(attrs),
+           {:ok, pr} <- api_fun.(:get, pull_path(input), nil, input.token),
+           {:ok, reviews} <- api_fun.(:get, pull_path(input) <> "/reviews", nil, input.token),
+           {:ok, comments} <- api_fun.(:get, pull_path(input) <> "/comments", nil, input.token),
+           {:ok, files} <- api_fun.(:get, pull_path(input) <> "/files", nil, input.token) do
+        {:ok,
+         %{
+           pull_request: normalize_context_pr(pr),
+           reviews: normalize_reviews(reviews),
+           comments: normalize_comments(comments),
+           files: normalize_files(files),
+           provenance: review_context_provenance(input, pr)
+         }}
+      end
+
+    redact_error(result)
   end
 
   defp find_existing_pr(input, api_fun) do
@@ -205,6 +211,9 @@ defmodule SymphonyElixir.Surfer.GitHub.PullRequest do
   defp redact_body(body) when is_binary(body), do: SecretRedactor.redact_text(body)
   defp redact_body(body), do: body
 
+  defp redact_error({:error, reason}), do: {:error, SecretRedactor.redact(reason)}
+  defp redact_error(result), do: result
+
   defp request(method, path, body, token) do
     request =
       Req.new(
@@ -217,8 +226,8 @@ defmodule SymphonyElixir.Surfer.GitHub.PullRequest do
     |> Req.request(method: method, url: path, json: body)
     |> case do
       {:ok, %{status: status, body: response_body}} when status in 200..299 -> {:ok, response_body}
-      {:ok, %{status: status, body: response_body}} -> {:error, {:github_http_error, status, response_body}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: status, body: response_body}} -> {:error, {:github_http_error, status, SecretRedactor.redact(response_body)}}
+      {:error, reason} -> {:error, SecretRedactor.redact(reason)}
     end
   end
 end

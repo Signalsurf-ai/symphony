@@ -127,9 +127,9 @@ available, and adds native platform ingress for Linear Agent sessions and Discor
   write failures/timing, signature failures, Discord follow-up failures, webhook ACK timing, first
   Linear activity timing, Codex run timing, runtime gauges, workspace disk usage, daily budget
   remaining, pending-write backlog/stale age, and budget-cap hits.
-- GitHub outbound PR create/update/context helper with redacted review/comment bodies and scoped
-  Company Brain retrieval that passes provenance-only refs with bounded redacted summaries. GitHub
-  webhook ingress is intentionally not implemented for v0.1.
+- GitHub outbound PR create/update/context helper with redacted review/comment bodies and API
+  error payloads, plus scoped Company Brain retrieval that passes provenance-only refs with
+  bounded redacted summaries. GitHub webhook ingress is intentionally not implemented for v0.1.
 - Shared direct-dispatch claim checks so duplicate Linear issue runners are refused locally.
 - Surfer prompt context injection for run ID, request mode, source platform,
   trigger, lineage IDs, routing, read/write constraints, a bounded redacted platform prompt-context
