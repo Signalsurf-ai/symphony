@@ -85,9 +85,9 @@ defmodule SymphonyElixir.Surfer.RunLedger do
   def claim_run(db_path, key, %RunRequest{} = request, opts \\ [])
       when is_binary(db_path) and is_binary(key) do
     result =
-      case initialize(db_path) do
-        :ok -> with_conn(db_path, &claim_run_with_conn(&1, key, request, opts))
-        {:error, reason} -> {:error, reason}
+      with :ok <- safe_idempotency_key(key),
+           :ok <- initialize(db_path) do
+        with_conn(db_path, &claim_run_with_conn(&1, key, request, opts))
       end
 
     emit_claim_result(result, request)
@@ -341,20 +341,28 @@ defmodule SymphonyElixir.Surfer.RunLedger do
   @spec record_idempotency_key(Path.t(), String.t(), String.t()) :: :ok | {:error, term()}
   def record_idempotency_key(db_path, key, run_id)
       when is_binary(key) and is_binary(run_id) do
-    with_conn(db_path, fn conn ->
-      execute(
-        conn,
-        "INSERT INTO idempotency_keys(key, run_id, created_at) VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING;",
-        [key, run_id, timestamp()]
-      )
-    end)
+    with :ok <- safe_idempotency_key(key) do
+      with_conn(db_path, fn conn ->
+        execute(
+          conn,
+          "INSERT INTO idempotency_keys(key, run_id, created_at) VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING;",
+          [key, run_id, timestamp()]
+        )
+      end)
+    end
   end
 
   @spec lookup_idempotency_key(Path.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def lookup_idempotency_key(db_path, key) when is_binary(key) do
-    with_conn(db_path, fn conn ->
-      lookup_idempotency_key_conn(conn, key)
-    end)
+    case safe_idempotency_key(key) do
+      :ok ->
+        with_conn(db_path, fn conn ->
+          lookup_idempotency_key_conn(conn, key)
+        end)
+
+      {:error, :secret_idempotency_key} ->
+        {:error, :not_found}
+    end
   end
 
   @spec update_status(Path.t(), String.t(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -940,6 +948,14 @@ defmodule SymphonyElixir.Surfer.RunLedger do
 
   defp maybe_to_string(nil), do: nil
   defp maybe_to_string(value), do: to_string(value)
+
+  defp safe_idempotency_key(key) when is_binary(key) do
+    if SecretRedactor.redact_text(key) == key do
+      :ok
+    else
+      {:error, :secret_idempotency_key}
+    end
+  end
 
   defp format_optional(nil), do: nil
   defp format_optional(value) when is_binary(value), do: value

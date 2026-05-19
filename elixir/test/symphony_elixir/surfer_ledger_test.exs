@@ -210,6 +210,27 @@ defmodule SymphonyElixir.SurferLedgerTest do
            end)
   end
 
+  test "rejects secret-shaped idempotency keys before claiming runs", %{db_path: db_path} do
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-secret-key",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    secret_key = "discord_interaction_token=secret-idempotency-token"
+
+    assert {:error, :secret_idempotency_key} =
+             RunLedger.claim_run(db_path, secret_key, request, platform: :discord)
+
+    assert {:error, :secret_idempotency_key} =
+             RunLedger.record_idempotency_key(db_path, secret_key, request.run_id)
+
+    assert {:error, :not_found} = RunLedger.get_run(db_path, request.run_id)
+    assert {:error, :not_found} = RunLedger.lookup_idempotency_key(db_path, secret_key)
+  end
+
   test "validates run status transitions and records transition events", %{db_path: db_path} do
     assert {:ok, request} =
              RunRequest.from_discord_message(%{
