@@ -49,6 +49,68 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert context.organization_id == "org-1"
   end
 
+  test "normalizes Linear mentions as scoped code questions unless implementation is requested" do
+    payload = %{
+      "type" => "AgentSessionEvent",
+      "action" => "created",
+      "organizationId" => "org-1",
+      "webhookId" => "webhook-question",
+      "agentSession" => %{
+        "id" => "session-question",
+        "promptContext" => """
+        <issue identifier="ENG-2">Improve routing</issue>
+        <primary-directive-thread>Where is routing handled?</primary-directive-thread>
+        """,
+        "issue" => %{
+          "id" => "issue-2",
+          "identifier" => "ENG-2",
+          "title" => "Improve routing",
+          "state" => %{"name" => "Todo"}
+        },
+        "comment" => %{"id" => "comment-question", "body" => "Where is routing handled?"}
+      }
+    }
+
+    assert {:ok, request} = RunRequest.from_linear_agent_session_event(payload)
+
+    assert request.source.trigger_type == :mention
+    assert request.request.mode == :code_question
+    assert request.request.trigger_type == :mention
+    assert request.request.body == "Where is routing handled?"
+    assert request.constraints == %{read_only: true, require_linear_issue: false, allow_pr_creation: false}
+    assert request.source.natural_event_key == "linear:session-question:created:comment-question:code_question"
+  end
+
+  test "normalizes Linear prompted help as scoped assistance and prompted implementation as durable work" do
+    prompted_help = %{
+      "type" => "AgentSessionEvent",
+      "action" => "prompted",
+      "agentSession" => %{
+        "id" => "session-prompted",
+        "issue" => %{"id" => "issue-3", "identifier" => "ENG-3", "title" => "Routing", "state" => %{"name" => "Todo"}},
+        "agentActivity" => %{"id" => "activity-help", "body" => "Can you explain the routing flow?"}
+      }
+    }
+
+    assert {:ok, help_request} = RunRequest.from_linear_agent_session_event(prompted_help)
+    assert help_request.source.trigger_type == :mention
+    assert help_request.request.mode == :code_question
+    assert help_request.request.body == "Can you explain the routing flow?"
+    assert RunRequest.idempotency_key(help_request) == "linear:session-prompted:prompted:activity-help:code_question"
+
+    prompted_work =
+      put_in(prompted_help, ["agentSession", "agentActivity"], %{
+        "id" => "activity-work",
+        "body" => "Please implement the routing fix."
+      })
+
+    assert {:ok, work_request} = RunRequest.from_linear_agent_session_event(prompted_work)
+    assert work_request.source.trigger_type == :delegation
+    assert work_request.request.mode == :durable_task
+    assert work_request.request.body == "Please implement the routing fix."
+    assert RunRequest.idempotency_key(work_request) == "linear:session-prompted:prompted:activity-work:durable_task"
+  end
+
   test "surfer context exposes a bounded redacted platform prompt context" do
     prompt_context =
       """

@@ -44,27 +44,27 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       comment = Map.get(session, "comment", %{})
       agent_activity = Map.get(session, "agentActivity") || Map.get(payload, "agentActivity") || %{}
       issue = linear_issue(issue_payload)
-      request_mode = :durable_task
+      prompt_context = Map.get(session, "promptContext")
+      directive = linear_directive_text(action, comment, agent_activity, prompt_context)
+      {request_mode, trigger_type} = classify_linear_request(directive)
 
       with {:ok, natural_event_key} <-
              linear_natural_event_key(session, action, comment, agent_activity, issue, request_mode) do
-        prompt_context = Map.get(session, "promptContext")
-
         {:ok,
          %__MODULE__{
            run_id: new_run_id(),
            source: %{
              platform: :linear,
-             trigger_type: :delegation,
+             trigger_type: trigger_type,
              raw_event_id: Map.get(payload, "webhookId"),
              action: action,
              natural_event_key: natural_event_key
            },
            request: %{
              mode: request_mode,
-             trigger_type: :delegation,
-             title: issue.title,
-             body: issue.description || Map.get(comment, "body"),
+             trigger_type: trigger_type,
+             title: linear_request_title(issue, directive),
+             body: linear_request_body(request_mode, action, issue, directive, comment),
              prompt_context: prompt_context,
              requested_by: nil
            },
@@ -236,6 +236,100 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   defp validate_linear_agent_session_action(action) when action in @linear_agent_session_actions, do: :ok
 
   defp validate_linear_agent_session_action(action), do: {:error, {:unsupported_linear_agent_action, action}}
+
+  defp linear_directive_text("prompted", comment, agent_activity, prompt_context) do
+    first_present([
+      map_text(agent_activity, "body"),
+      map_text(agent_activity, "content"),
+      map_text(comment, "body"),
+      primary_directive_text(prompt_context)
+    ])
+  end
+
+  defp linear_directive_text(_action, comment, agent_activity, prompt_context) do
+    first_present([
+      map_text(comment, "body"),
+      primary_directive_text(prompt_context),
+      map_text(agent_activity, "body"),
+      map_text(agent_activity, "content")
+    ])
+  end
+
+  defp classify_linear_request(directive) do
+    directive = directive || ""
+
+    cond do
+      String.trim(directive) == "" -> {:durable_task, :delegation}
+      linear_implementation_request?(directive) -> {:durable_task, :delegation}
+      true -> {:code_question, :mention}
+    end
+  end
+
+  defp linear_request_title(issue, directive) do
+    first_present([issue.title, directive]) || "Linear request"
+  end
+
+  defp linear_request_body(:code_question, _action, issue, directive, comment) do
+    first_present([directive, map_text(comment, "body"), issue.description, issue.title])
+  end
+
+  defp linear_request_body(:durable_task, "prompted", issue, directive, comment) do
+    first_present([directive, map_text(comment, "body"), issue.description, issue.title])
+  end
+
+  defp linear_request_body(:durable_task, _action, issue, directive, comment) do
+    first_present([issue.description, directive, map_text(comment, "body"), issue.title])
+  end
+
+  defp linear_implementation_request?(directive) do
+    normalized = directive |> String.downcase() |> String.replace(~r/[^a-z0-9+#._-]+/u, " ")
+
+    Regex.match?(
+      ~r/\b(implement|fix|build|add|update|change|refactor|create|write|code|patch|repair|solve|resolve|address|ship|land|open pr|raise pr|create pr|submit pr|make a pr|work on|take over|handle this)\b/,
+      normalized
+    )
+  end
+
+  defp primary_directive_text(value) when is_binary(value) do
+    case Regex.run(~r/<primary-directive-thread[^>]*>(.*?)<\/primary-directive-thread>/is, value, capture: :all_but_first) do
+      [body] -> strip_markup(body)
+      _no_directive -> nil
+    end
+  end
+
+  defp primary_directive_text(_value), do: nil
+
+  defp strip_markup(value) do
+    value
+    |> String.replace(~r/<[^>]+>/u, " ")
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+    |> blank_to_nil()
+  end
+
+  defp map_text(map, key) when is_map(map) do
+    map
+    |> Map.get(key)
+    |> case do
+      value when is_binary(value) -> value |> String.trim() |> blank_to_nil()
+      _value -> nil
+    end
+  end
+
+  defp map_text(_map, _key), do: nil
+
+  defp first_present(values) do
+    Enum.find_value(values, fn
+      value when is_binary(value) ->
+        value |> String.trim() |> blank_to_nil()
+
+      _value ->
+        nil
+    end)
+  end
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
   defp redact_prompt_context(value) do
     SecretRedactor.redact_text(value)
