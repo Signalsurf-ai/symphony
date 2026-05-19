@@ -300,8 +300,16 @@ defmodule SymphonyElixir.Config.Schema do
         |> cast(attrs, fields, empty_values: [])
         |> validate_required(:health_check_command)
         |> validate_inclusion(:auth, ["openai_pro_oauth"])
+        |> validate_app_server_version_pin()
         |> validate_number(:per_run_budget_usd, greater_than: 0)
         |> validate_number(:daily_budget_usd, greater_than: 0)
+      end
+
+      defp validate_app_server_version_pin(changeset) do
+        case get_field(changeset, :auth) do
+          "openai_pro_oauth" -> validate_required(changeset, :app_server_version)
+          _auth -> changeset
+        end
       end
     end
 

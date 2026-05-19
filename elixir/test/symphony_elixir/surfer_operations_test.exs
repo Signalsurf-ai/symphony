@@ -393,6 +393,7 @@ defmodule SymphonyElixir.SurferOperationsTest do
       surfer:
         codex:
           auth: openai_pro_oauth
+          app_server_version: "0.131.0"
           health_check_command: codex login status
       ---
       Prompt

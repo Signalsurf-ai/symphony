@@ -323,10 +323,11 @@ it does not replace the Linear, Discord, GitHub, and runner smoke tests.
 Authenticate Codex once with the mounted Codex home. This is where the operator-owned OpenAI Pro
 OAuth session lives; do not bake it into the image.
 Set `surfer.codex.home` to the mounted Codex home, usually `$SURFER_CODEX_HOME`. When
-`surfer.codex.auth: openai_pro_oauth` is configured, Surfer runs
-`surfer.codex.health_check_command` at startup with `CODEX_HOME` set from `surfer.codex.home`. A
-failed health check pauses new dispatch through the runtime pause control instead of silently
-sending work into an unauthenticated Codex backend.
+`surfer.codex.auth: openai_pro_oauth` is configured, `surfer.codex.app_server_version` is required
+as the operator's Codex app-server schema pin. Surfer runs `surfer.codex.health_check_command` at
+startup with `CODEX_HOME` set from `surfer.codex.home`. A failed health check pauses new dispatch
+through the runtime pause control instead of silently sending work into an unauthenticated Codex
+backend.
 
 ```bash
 docker compose -f docker-compose.surfer.yml run --rm --entrypoint codex surfer login

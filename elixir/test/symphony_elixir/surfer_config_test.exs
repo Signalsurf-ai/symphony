@@ -379,6 +379,27 @@ defmodule SymphonyElixir.SurferConfigTest do
     assert message =~ "surfer.codex.auth"
   end
 
+  test "fails closed when OpenAI Pro OAuth Codex config has no app-server version pin" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        codex:
+          auth: openai_pro_oauth
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "surfer.codex.app_server_version"
+  end
+
   test "fails closed when SURFER_PAUSE_MODE env is unsupported" do
     previous_pause_mode = System.get_env("SURFER_PAUSE_MODE")
     on_exit(fn -> restore_env("SURFER_PAUSE_MODE", previous_pause_mode) end)
