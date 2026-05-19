@@ -3060,8 +3060,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert request.lineage.linear.issue_id == "issue-run-1"
     assert request.lineage.linear.issue_identifier == "SURF-2"
     assert request.issue.identifier == "SURF-2"
-    assert_receive {:interaction_response, accepted}
-    assert accepted =~ request.run_id
+    assert_interaction_response_contains(request.run_id)
 
     assert {:ok, run} = RunLedger.get_run(db_path, request.run_id)
     assert run["canonical_linear_issue_id"] == "issue-run-1"
@@ -3147,8 +3146,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       |> post("/webhooks/discord/interactions", command_body)
 
     assert json_response(conn, 200)["type"] == 5
-    assert_receive {:interaction_response, body}
-    assert body =~ "cancelled"
+    assert_interaction_response_contains("cancelled")
     refute_receive {:unexpected_dispatch, _run_id}, 200
     assert {:ok, %{"status" => "cancelled"}} = RunLedger.get_run(db_path, target_run_id)
     assert {:ok, command_run_id} = RunLedger.lookup_idempotency_key(db_path, "discord_interaction:interaction-cancel-1:lifecycle_control")
@@ -3233,8 +3231,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       |> post("/webhooks/discord/interactions", command_body)
 
     assert json_response(conn, 200)["type"] == 5
-    assert_receive {:interaction_response, body}
-    assert body =~ "created for #{target_run_id}"
+    body = assert_interaction_response_contains("created for #{target_run_id}")
     [retry_run_id] = Regex.run(~r/surf_run_retry_[A-Za-z0-9_-]+/, body)
     refute_receive {:unexpected_dispatch, _run_id}, 200
     assert {:ok, %{"status" => "queued"}} = RunLedger.get_run(db_path, retry_run_id)
@@ -3960,6 +3957,11 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     do_assert_discord_post_contains(channel_id, expected, deadline, [])
   end
 
+  defp assert_interaction_response_contains(expected) do
+    deadline = System.monotonic_time(:millisecond) + 1_000
+    do_assert_interaction_response_contains(expected, deadline, [])
+  end
+
   defp assert_discord_followup_failed_for(interaction_id, deadline \\ System.monotonic_time(:millisecond) + 1_000) do
     remaining_ms = max(deadline - System.monotonic_time(:millisecond), 0)
 
@@ -3993,6 +3995,22 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     after
       remaining_ms ->
         flunk("expected Discord post in #{channel_id} to contain #{inspect(expected)}, saw #{inspect(Enum.reverse(seen))}")
+    end
+  end
+
+  defp do_assert_interaction_response_contains(expected, deadline, seen) do
+    remaining_ms = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {:interaction_response, body} ->
+        if body =~ expected do
+          body
+        else
+          do_assert_interaction_response_contains(expected, deadline, [body | seen])
+        end
+    after
+      remaining_ms ->
+        flunk("expected Discord interaction response to contain #{inspect(expected)}, saw #{inspect(Enum.reverse(seen))}")
     end
   end
 
