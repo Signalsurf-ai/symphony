@@ -154,8 +154,9 @@ notification webhook contract instead of re-enabling project polling as the defa
   Linear activity timing, Codex run timing, runtime gauges, workspace disk usage, daily budget
   remaining, pending-write backlog/stale age, and budget-cap hits.
 - GitHub outbound PR create/update/context helper with redacted review/comment bodies and API
-  error payloads, plus scoped Company Brain retrieval that passes provenance-only refs with
-  bounded redacted summaries. GitHub webhook ingress is intentionally not implemented for v0.1.
+  error payloads, plus scoped Company Brain retrieval that passes provenance-only refs including
+  repo, path, commit, and freshness when available with bounded redacted summaries. GitHub webhook
+  ingress is intentionally not implemented for v0.1.
 - Shared direct-dispatch claim checks so duplicate Linear issue runners are refused locally.
 - Surfer prompt context injection for run ID, request mode, source platform,
   trigger, lineage IDs, routing, read/write constraints, a bounded redacted platform prompt-context

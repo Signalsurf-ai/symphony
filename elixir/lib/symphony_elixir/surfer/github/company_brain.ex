@@ -11,15 +11,18 @@ defmodule SymphonyElixir.Surfer.GitHub.CompanyBrain do
   def retrieve(%{company_brain_repo: repo, company_brain_paths: paths, fetch_fun: fetch_fun})
       when is_binary(repo) and is_list(paths) and is_function(fetch_fun, 2) do
     with {:ok, refs} <- fetch_fun.(repo, paths) do
-      {:ok, refs |> Enum.filter(&allowed_path?(&1, paths)) |> Enum.map(&background_ref/1)}
+      {:ok, refs |> Enum.filter(&allowed_path?(&1, paths)) |> Enum.map(&background_ref(&1, repo))}
     end
   end
 
   def retrieve(_config), do: {:ok, []}
 
-  defp background_ref(ref) when is_map(ref) do
+  defp background_ref(ref, repo) when is_map(ref) do
     %{}
+    |> put_present(:repo, repo)
     |> put_present(:path, string_value(ref, :path))
+    |> put_present(:commit, string_value(ref, :commit))
+    |> put_present(:freshness, string_value(ref, :freshness))
     |> put_present(:url, string_value(ref, :url))
     |> put_present(:summary, ref |> string_value(:summary) |> sanitize_summary())
     |> Map.put(:authority, :background)

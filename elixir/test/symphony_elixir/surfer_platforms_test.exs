@@ -359,6 +359,8 @@ defmodule SymphonyElixir.SurferPlatformsTest do
          %{
            path: "meetings/2026-05-01.md",
            url: "https://github.com/acme/company-brain/blob/main/meetings/2026-05-01.md",
+           commit: "abc1234",
+           freshness: "current",
            summary: long_summary,
            content: "raw meeting transcript",
            access_token: "github-token"
@@ -378,7 +380,10 @@ defmodule SymphonyElixir.SurferPlatformsTest do
                fetch_fun: fetch_fun
              })
 
+    assert ref.repo == "acme/company-brain"
     assert ref.path == "meetings/2026-05-01.md"
+    assert ref.commit == "abc1234"
+    assert ref.freshness == "current"
     assert ref.url == "https://github.com/acme/company-brain/blob/main/meetings/2026-05-01.md"
     assert ref.summary == String.duplicate("a", 500) <> "..."
     assert ref.authority == :background
