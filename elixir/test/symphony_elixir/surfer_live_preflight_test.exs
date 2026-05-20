@@ -21,6 +21,17 @@ defmodule SymphonyElixir.SurferLivePreflightTest do
     assert result.failed_checks == []
   end
 
+  test "does not duplicate missing runtime path env as nil path failures" do
+    result = LivePreflight.check(env: %{}, codex_check?: false)
+
+    refute result.ok?
+    assert "SURFER_WORKSPACE_ROOT" in result.missing_env
+    assert "SURFER_SQLITE_PATH" in result.missing_env
+
+    refute Enum.any?(result.failed_checks, &match?(%{name: :runtime_path, path: nil}, &1))
+    refute Enum.any?(result.failed_checks, &match?(%{name: :sqlite_path, path: nil}, &1))
+  end
+
   test "passes required environment and records Codex OAuth health" do
     {env, cleanup} = required_env_with_paths()
     on_exit(cleanup)

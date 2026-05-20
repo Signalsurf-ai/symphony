@@ -82,6 +82,8 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
     end)
   end
 
+  defp missing_env_value?(_key, value) when not is_binary(value), do: true
+
   defp missing_env_value?(key, value) do
     value = String.trim(value)
 
@@ -189,9 +191,13 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
     Enum.reduce(@runtime_path_env, {failed, passed}, fn {key, name}, {failed_acc, passed_acc} ->
       path = Map.get(env, key)
 
-      case path_checker.(path) do
-        :ok -> {failed_acc, [name | passed_acc]}
-        {:error, reason} -> {[%{name: :runtime_path, env: key, path: path, reason: reason} | failed_acc], passed_acc}
+      if missing_env_value?(key, path) do
+        {failed_acc, passed_acc}
+      else
+        case path_checker.(path) do
+          :ok -> {failed_acc, [name | passed_acc]}
+          {:error, reason} -> {[%{name: :runtime_path, env: key, path: path, reason: reason} | failed_acc], passed_acc}
+        end
       end
     end)
   end
@@ -201,9 +207,13 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
   defp maybe_check_sqlite_path({failed, passed}, true, env, sqlite_path_checker) do
     path = Map.get(env, "SURFER_SQLITE_PATH")
 
-    case sqlite_path_checker.(path) do
-      :ok -> {failed, [:sqlite_path | passed]}
-      {:error, reason} -> {[%{name: :sqlite_path, env: "SURFER_SQLITE_PATH", path: path, reason: reason} | failed], passed}
+    if missing_env_value?("SURFER_SQLITE_PATH", path) do
+      {failed, passed}
+    else
+      case sqlite_path_checker.(path) do
+        :ok -> {failed, [:sqlite_path | passed]}
+        {:error, reason} -> {[%{name: :sqlite_path, env: "SURFER_SQLITE_PATH", path: path, reason: reason} | failed], passed}
+      end
     end
   end
 
