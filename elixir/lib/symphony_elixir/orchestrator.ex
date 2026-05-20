@@ -1261,7 +1261,7 @@ defmodule SymphonyElixir.Orchestrator do
             :ok
 
           {:error, reason} ->
-            Logger.warning("Skipping Surfer startup workspace retention cleanup: #{inspect(reason)}")
+            Logger.warning("Skipping Surfer startup workspace retention cleanup: #{safe_inspect(reason)}")
         end
     end
   end
@@ -1286,7 +1286,7 @@ defmodule SymphonyElixir.Orchestrator do
             :ok
 
           {:error, reason} ->
-            Logger.warning("Skipping Surfer ledger retention prune: #{inspect(reason)}")
+            Logger.warning("Skipping Surfer ledger retention prune: #{safe_inspect(reason)}")
         end
     end
   end
@@ -1977,7 +1977,7 @@ defmodule SymphonyElixir.Orchestrator do
             :ok
 
           {:error, reason} ->
-            Logger.warning("Failed to record blocked Surfer dispatch run_id=#{request.run_id} status=#{status}: #{inspect(reason)}")
+            Logger.warning("Failed to record blocked Surfer dispatch run_id=#{request.run_id} status=#{status}: #{safe_inspect(reason)}")
 
             :ok
         end
@@ -2038,7 +2038,7 @@ defmodule SymphonyElixir.Orchestrator do
             :ok
 
           {:error, reason} ->
-            Logger.warning("Failed to update Surfer run ledger status run_id=#{run_id} status=#{status}: #{inspect(reason)}")
+            Logger.warning("Failed to update Surfer run ledger status run_id=#{run_id} status=#{status}: #{safe_inspect(reason)}")
             :ok
         end
 
@@ -2067,7 +2067,7 @@ defmodule SymphonyElixir.Orchestrator do
             :ok
 
           {:error, reason} ->
-            Logger.warning("Failed to record pending platform write run_id=#{run_id} platform=#{platform}: #{inspect(reason)}")
+            Logger.warning("Failed to record pending platform write run_id=#{run_id} platform=#{platform}: #{safe_inspect(reason)}")
             :ok
         end
 
