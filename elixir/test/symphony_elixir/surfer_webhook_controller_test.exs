@@ -1912,6 +1912,64 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute_receive {:unexpected_dispatch, _run_id}, 100
   end
 
+  test "Discord message ingress accepts next rotation relay secret" do
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-message-next-secret-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            message_ingress_secret: relay-secret-current
+            message_ingress_secret_next: relay-secret-next
+            bot_token: test-discord-bot-token
+            allowed_guilds:
+              - guild-1
+            allowed_channels:
+              - channel-1
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:discord_dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        "id" => "message-rotation-next",
+        "guild_id" => "guild-1",
+        "channel_id" => "channel-1",
+        "content" => "surfer question"
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_message_relay_signature_headers(body, "relay-secret-next")
+      |> post("/webhooks/discord/message", body)
+
+    assert %{"ok" => true, "run_id" => run_id} = json_response(conn, 202)
+    assert_receive {:discord_dispatch, ^run_id}
+
+    assert {:ok, ^run_id} =
+             RunLedger.lookup_idempotency_key(db_path, "discord_message:guild-1:channel-1:message-rotation-next:code_question")
+  end
+
   test "Discord webhook rejects messages from unconfigured channels" do
     File.write!(
       Workflow.workflow_file_path(),

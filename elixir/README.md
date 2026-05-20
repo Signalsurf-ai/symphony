@@ -323,6 +323,7 @@ Optional rotation variables:
 
 - `LINEAR_WEBHOOK_SECRET_NEXT`
 - `DISCORD_PUBLIC_KEY_NEXT`
+- `DISCORD_MESSAGE_INGRESS_SECRET_NEXT`
 
 Optional host-only Docker variable:
 
@@ -406,8 +407,9 @@ Discord:
    to comma-separated allowlists for Discord ingress. If a gateway adapter or internal relay calls
    `/webhooks/discord/message`, set `DISCORD_MESSAGE_INGRESS_SECRET` and sign each raw JSON body
    with HMAC-SHA256 using `x-surfer-discord-relay-timestamp` and
-   `x-surfer-discord-relay-signature`; keep the allowlists scoped to the same approved Discord
-   surfaces.
+   `x-surfer-discord-relay-signature`; during relay secret rotation, set
+   `DISCORD_MESSAGE_INGRESS_SECRET_NEXT` until the relay has switched over. Keep the allowlists
+   scoped to the same approved Discord surfaces.
 
 GitHub:
 

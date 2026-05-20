@@ -743,6 +743,23 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert readme =~ "HMAC-SHA256"
   end
 
+  test "Surfer hosting docs list every optional rotation env from the example file" do
+    env_example = File.read!(Path.expand("../../.env.surfer.example", __DIR__))
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    env_example
+    |> String.split("\n", trim: true)
+    |> Enum.map(&String.split(&1, "=", parts: 2))
+    |> Enum.flat_map(fn
+      [key, ""] ->
+        if String.ends_with?(key, "_NEXT"), do: [key], else: []
+
+      _other ->
+        []
+    end)
+    |> Enum.each(fn key -> assert readme =~ "`#{key}`" end)
+  end
+
   test "Surfer hosting docs require disk encryption decision and release-note risk callout" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 
