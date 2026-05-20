@@ -527,6 +527,60 @@ defmodule SymphonyElixir.SurferConfigTest do
              Config.validate!()
   end
 
+  test "fails closed when Discord ingress allowlists are missing" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: /tmp/surfer.sqlite3
+        platforms:
+          discord:
+            enabled: true
+            public_key: discord-public-key
+            message_ingress_secret: discord-message-secret
+            bot_token: discord-bot-token
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert {:error, {:missing_surfer_platform_allowlist, :discord, :allowed_guilds}} =
+             Config.validate!()
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: /tmp/surfer.sqlite3
+        platforms:
+          discord:
+            enabled: true
+            public_key: discord-public-key
+            message_ingress_secret: discord-message-secret
+            bot_token: discord-bot-token
+            allowed_guilds:
+              - guild-1
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert {:error, {:missing_surfer_platform_allowlist, :discord, :allowed_channels}} =
+             Config.validate!()
+  end
+
   test "fails closed when GitHub App auth is configured for Surfer v0.1" do
     File.write!(
       Workflow.workflow_file_path(),

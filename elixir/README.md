@@ -121,6 +121,8 @@ notification webhook contract instead of re-enabling project polling as the defa
   subcommands, deferred slash-command ACKs, original-response edits, deduplication, and per-user
   cooldowns plus per-channel queued-run limits and optional ledger-backed daily user/channel run
   caps.
+- Enabled Discord ingress fails closed during config/startup validation when guild or channel
+  allowlists are missing.
 - Discord message ingress at `/webhooks/discord/message` for gateway adapters or internal relays,
   active only when `surfer.platforms.discord.enabled: true`, with
   `surfer.platforms.discord.message_ingress_path`, HMAC-SHA256 relay verification, and the same

@@ -143,6 +143,12 @@ defmodule SymphonyElixir.Config do
   end
 
   defp validate_surfer_platforms(platforms) do
+    with :ok <- validate_surfer_platform_secrets(platforms) do
+      validate_surfer_discord_allowlists(platforms.discord)
+    end
+  end
+
+  defp validate_surfer_platform_secrets(platforms) do
     Enum.find_value(
       [
         {:linear, :webhook_secret, platforms.linear.enabled, platforms.linear.webhook_secret},
@@ -160,6 +166,16 @@ defmodule SymphonyElixir.Config do
       end
     )
   end
+
+  defp validate_surfer_discord_allowlists(%{enabled: true, allowed_guilds: allowed_guilds, allowed_channels: allowed_channels}) do
+    cond do
+      empty_list?(allowed_guilds) -> {:error, {:missing_surfer_platform_allowlist, :discord, :allowed_guilds}}
+      empty_list?(allowed_channels) -> {:error, {:missing_surfer_platform_allowlist, :discord, :allowed_channels}}
+      true -> :ok
+    end
+  end
+
+  defp validate_surfer_discord_allowlists(_discord), do: :ok
 
   defp validate_surfer_storage(surfer) do
     if surfer_platform_enabled?(surfer.platforms) and blank?(surfer.storage.sqlite_path) do
@@ -182,6 +198,7 @@ defmodule SymphonyElixir.Config do
   end
 
   defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
+  defp empty_list?(value), do: not (is_list(value) and value != [])
 
   defp format_config_error(reason) do
     case reason do
