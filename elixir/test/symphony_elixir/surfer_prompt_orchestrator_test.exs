@@ -45,6 +45,48 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert prompt =~ "Allow PR: false"
   end
 
+  test "prompt builder exposes source and lineage maps from normalized run requests" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: """
+      Source action: {{ surfer.source.action }}
+      Source event: {{ surfer.source.raw_event_id }}
+      Source key: {{ surfer.source.natural_event_key }}
+      Lineage session: {{ surfer.lineage.linear.agent_session_id }}
+      Lineage issue: {{ surfer.lineage.linear.issue_id }}
+      """
+    )
+
+    assert {:ok, request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
+               "action" => "created",
+               "webhookId" => "webhook-lineage-1",
+               "agentSession" => %{
+                 "id" => "session-lineage-1",
+                 "issue" => %{
+                   "id" => "issue-lineage-1",
+                   "identifier" => "ENG-LINEAGE",
+                   "title" => "Expose lineage",
+                   "state" => %{"name" => "Todo"}
+                 },
+                 "comment" => %{"id" => "comment-lineage-1", "body" => "Please implement lineage context."}
+               }
+             })
+
+    issue = %Issue{id: "issue-lineage-1", identifier: "ENG-LINEAGE", title: "Expose lineage", state: "Todo"}
+
+    prompt =
+      PromptBuilder.build_prompt(issue,
+        surfer_context: RunRequest.surfer_context(request)
+      )
+
+    assert prompt =~ "Source action: created"
+    assert prompt =~ "Source event: webhook-lineage-1"
+    assert prompt =~ "Source key: linear:session-lineage-1:created:comment-lineage-1:durable_task"
+    assert prompt =~ "Lineage session: session-lineage-1"
+    assert prompt =~ "Lineage issue: issue-lineage-1"
+  end
+
   test "orchestrator direct dispatch converts a normalized run request into an agent run" do
     parent = self()
     handler_id = {__MODULE__, self(), :orchestrator_runtime_metrics}

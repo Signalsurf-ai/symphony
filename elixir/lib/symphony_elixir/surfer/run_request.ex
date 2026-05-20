@@ -206,8 +206,10 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       run_id: request.run_id,
       request_mode: to_string(request.request.mode),
       source_platform: to_string(request.source.platform),
+      source: prompt_safe_source(request.source),
       trigger_type: to_string(request.source.trigger_type),
       organization_id: request.organization_id,
+      lineage: request.lineage,
       linear: request.lineage.linear,
       discord: request.lineage.discord,
       github: request.lineage.github,
@@ -219,6 +221,21 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   end
 
   defp context_value(context, key) when is_map(context), do: Map.get(context, key) || Map.get(context, to_string(key))
+
+  defp prompt_safe_source(source) when is_map(source) do
+    %{
+      platform: source |> Map.get(:platform) |> to_string_or_nil(),
+      trigger_type: source |> Map.get(:trigger_type) |> to_string_or_nil(),
+      raw_event_id: Map.get(source, :raw_event_id),
+      action: Map.get(source, :action),
+      natural_event_key: Map.get(source, :natural_event_key)
+    }
+  end
+
+  defp prompt_safe_source(_source), do: %{}
+
+  defp to_string_or_nil(nil), do: nil
+  defp to_string_or_nil(value), do: to_string(value)
 
   defp sanitize_prompt_context(nil), do: nil
 
