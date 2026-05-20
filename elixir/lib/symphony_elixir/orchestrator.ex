@@ -2323,7 +2323,7 @@ defmodule SymphonyElixir.Orchestrator do
           state
 
         {:error, reason} ->
-          Logger.warning("Skipping Surfer budget cap check: #{inspect(reason)}")
+          Logger.warning("Skipping Surfer budget cap check run_id=#{run_id}: #{safe_inspect(reason)}")
           state
       end
     else

@@ -1313,6 +1313,112 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert body =~ "daily budget cap"
   end
 
+  test "orchestrator budget check warnings include run id for active direct dispatches" do
+    db_path = Path.join(System.tmp_dir!(), "surfer-budget-log-#{System.unique_integer([:positive])}.sqlite3")
+    bad_db_path = Path.join(System.tmp_dir!(), "surfer-budget-log-bad-#{System.unique_integer([:positive])}")
+    File.rm_rf(db_path)
+    File.rm_rf(bad_db_path)
+    File.mkdir_p!(bad_db_path)
+
+    on_exit(fn ->
+      File.rm_rf(db_path)
+      File.rm_rf(bad_db_path)
+    end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        codex:
+          per_run_budget_usd: 1.0
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    parent = self()
+    orchestrator_name = Module.concat(__MODULE__, :BudgetCheckWarningOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      stop_orchestrator(pid)
+    end)
+
+    assert {:ok, request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
+               "action" => "created",
+               "agentSession" => %{
+                 "id" => "session-budget-log-1",
+                 "issue" => %{
+                   "id" => "issue-budget-log-1",
+                   "identifier" => "ENG-BUDGET",
+                   "title" => "Fix budget warning",
+                   "state" => %{"name" => "Todo"}
+                 }
+               }
+             })
+
+    runner_fun = fn _issue, _recipient, _opts ->
+      send(parent, {:budget_warning_runner_started, self()})
+
+      receive do
+        :release_runner -> :ok
+      after
+        60_000 -> :ok
+      end
+    end
+
+    assert :ok = Orchestrator.dispatch_run(orchestrator_name, request, runner_fun: runner_fun)
+    assert_receive {:budget_warning_runner_started, runner_pid}, 1_000
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{bad_db_path}
+        codex:
+          per_run_budget_usd: 1.0
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        send(
+          pid,
+          {:codex_worker_update, "issue-budget-log-1",
+           %{
+             event: :notification,
+             payload: %{"method" => "thread/tokenUsage/updated", "params" => %{"usage" => %{"total_tokens" => 1}}},
+             timestamp: DateTime.utc_now()
+           }}
+        )
+
+        Process.sleep(50)
+      end)
+
+    assert log =~ "Skipping Surfer budget cap check"
+    assert log =~ "run_id=#{request.run_id}"
+    assert Process.alive?(runner_pid)
+
+    send(runner_pid, :release_runner)
+  end
+
   test "operator pause cancel mode terminates active direct dispatch runs" do
     previous_pause = Application.get_env(:symphony_elixir, :surfer_runtime_pause)
     on_exit(fn -> restore_app_env(:surfer_runtime_pause, previous_pause) end)
