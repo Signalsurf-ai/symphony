@@ -1333,7 +1333,14 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp failure_retry_delay(attempt) do
     max_delay_power = min(attempt - 1, 10)
-    min(@failure_retry_base_ms * (1 <<< max_delay_power), Config.settings!().agent.max_retry_backoff_ms)
+    min(@failure_retry_base_ms * (1 <<< max_delay_power), max_retry_backoff_ms())
+  end
+
+  defp max_retry_backoff_ms do
+    case Config.settings() do
+      {:ok, config} -> config.agent.max_retry_backoff_ms
+      {:error, _reason} -> 300_000
+    end
   end
 
   defp normalize_retry_attempt(attempt) when is_integer(attempt) and attempt > 0, do: attempt

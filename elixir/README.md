@@ -153,7 +153,8 @@ notification webhook contract instead of re-enabling project polling as the defa
 - Daily Codex budget-cap enforcement at ingress from the SQLite usage ledger, plus active-run
   per-run and shared daily budget-cap status marking when recorded usage reaches the configured
   cap.
-- Optional workspace disk-pressure ingress blocking when `disk_pressure_max_used_percent` is set.
+- Optional workspace disk-pressure ingress blocking when `disk_pressure_max_used_percent` is set;
+  unreadable disk-usage checks fail closed and skip dispatch.
 - Workspace retention cleanup helper that preserves active and awaiting-review runs.
 - AgentRunner holds an exclusive `.surfer-run.lock` in the workspace while Codex is running.
 - Local embedded SQLite run/event/link/idempotency ledger with natural-key atomic claims, status

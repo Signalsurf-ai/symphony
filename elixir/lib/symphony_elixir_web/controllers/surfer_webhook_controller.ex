@@ -728,7 +728,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
       budget_cap_exceeded?() ->
         budget_cap_linear_response(response, request)
 
-      disk_pressure?() ->
+      disk_pressure?(response.run_id) ->
         disk_pressure_linear_response(response, request)
 
       linear_session_active_run_limited?(response.run_id, request) ->
@@ -832,7 +832,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
           response.run_id
         )
 
-      disk_pressure?() ->
+      disk_pressure?(response.run_id) ->
         record_disk_pressure_run(response.run_id)
 
         post_discord_interaction_response(
@@ -1558,7 +1558,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     end
   end
 
-  defp disk_pressure? do
+  defp disk_pressure?(run_id) do
     settings = Config.settings!()
     workspace_root = settings.surfer.workspace_root || settings.workspace.root
     max_used_percent = settings.surfer.storage.disk_pressure_max_used_percent
@@ -1571,8 +1571,12 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
         end
 
       case WorkspaceLifecycle.disk_pressure?(workspace_root, max_used_percent, opts) do
-        {:ok, pressure?} -> pressure?
-        {:error, _reason} -> false
+        {:ok, pressure?} ->
+          pressure?
+
+        {:error, reason} ->
+          Logger.warning("Unable to check Surfer workspace disk pressure#{run_log_context(run_id)}: #{safe_inspect(reason)}")
+          true
       end
     else
       false

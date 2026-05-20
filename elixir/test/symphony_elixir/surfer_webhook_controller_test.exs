@@ -5158,6 +5158,93 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert {:ok, %{"status" => "failed", "error_code" => "disk_pressure"}} = RunLedger.get_run(db_path, run_id)
   end
 
+  test "Linear ingress fails closed when workspace disk pressure cannot be checked" do
+    previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
+    on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)
+    System.put_env("LINEAR_WEBHOOK_SECRET", "secret")
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-disk-pressure-error-#{System.unique_integer([:positive])}.sqlite3")
+    workspace_root = Path.join(System.tmp_dir!(), "surfer-disk-error-workspaces-#{System.unique_integer([:positive])}")
+
+    File.rm_rf(db_path)
+    File.rm_rf(workspace_root)
+
+    on_exit(fn ->
+      File.rm_rf(db_path)
+      File.rm_rf(workspace_root)
+    end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      workspace:
+        root: #{workspace_root}
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+          disk_pressure_max_used_percent: 90
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_disk_usage_fun, fn ^workspace_root ->
+      {:error, {:df_failed, "Authorization: Bearer df-secret api_key=df-api-key"}}
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        webhookTimestamp: System.system_time(:millisecond),
+        webhookId: "webhook-disk-error-1",
+        type: "AgentSessionEvent",
+        action: "created",
+        agentSession: %{
+          id: "session-disk-error-1",
+          issue: %{id: "issue-disk-error-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
+        }
+      })
+
+    signature = :crypto.mac(:hmac, :sha256, "secret", body) |> Base.encode16(case: :lower)
+
+    log =
+      capture_log(fn ->
+        conn =
+          build_conn()
+          |> put_req_header("content-type", "application/json")
+          |> put_req_header("linear-signature", signature)
+          |> post("/webhooks/linear/agent", body)
+
+        send(parent, {:disk_error_response, conn})
+      end)
+
+    assert_receive {:disk_error_response, conn}
+    assert %{"disk_pressure" => true, "run_id" => run_id} = json_response(conn, 202)
+    refute_receive {:unexpected_dispatch, _run_id}, 200
+    assert {:ok, %{"status" => "failed", "error_code" => "disk_pressure"}} = RunLedger.get_run(db_path, run_id)
+
+    assert log =~ "run_id=#{run_id}"
+    assert log =~ "Authorization: Bearer [REDACTED]"
+    assert log =~ "api_key=[REDACTED]"
+    refute log =~ "df-secret"
+    refute log =~ "df-api-key"
+  end
+
   defp put_discord_signature_headers(conn, body, private_key, timestamp \\ Integer.to_string(System.system_time(:second))) do
     signature =
       :crypto.sign(:eddsa, :none, timestamp <> body, [private_key, :ed25519])
