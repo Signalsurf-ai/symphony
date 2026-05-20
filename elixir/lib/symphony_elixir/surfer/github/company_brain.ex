@@ -12,7 +12,7 @@ defmodule SymphonyElixir.Surfer.GitHub.CompanyBrain do
       when is_binary(repo) and is_list(paths) and is_function(fetch_fun, 2) do
     allowed_paths = normalize_allowed_paths(paths)
 
-    with {:ok, refs} <- fetch_fun.(repo, paths) do
+    with {:ok, refs} <- fetch_fun.(repo, allowed_paths) do
       {:ok, refs |> Enum.filter(&allowed_path?(&1, allowed_paths)) |> Enum.map(&background_ref(&1, repo))}
     end
   end

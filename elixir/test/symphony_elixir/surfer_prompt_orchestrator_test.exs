@@ -173,7 +173,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     end
 
     assert :ok = Orchestrator.dispatch_run(orchestrator_name, request, runner_fun: runner_fun)
-    assert_receive {:company_brain_fetch, "acme/company-brain", ["meetings/"]}
+    assert_receive {:company_brain_fetch, "acme/company-brain", ["meetings"]}
     assert_receive {:runner_context, context}
 
     assert [

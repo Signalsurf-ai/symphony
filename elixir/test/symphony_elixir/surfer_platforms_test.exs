@@ -374,7 +374,7 @@ defmodule SymphonyElixir.SurferPlatformsTest do
   test "Company Brain retrieval is scoped to configured repo and paths" do
     fetch_fun = fn repo, paths ->
       assert repo == "acme/company-brain"
-      assert paths == ["meetings/", "research/"]
+      assert paths == ["meetings", "research"]
 
       {:ok,
        [
@@ -417,6 +417,24 @@ defmodule SymphonyElixir.SurferPlatformsTest do
              })
 
     assert [%{path: "meetings/2026-05-01.md"}] = refs
+  end
+
+  test "Company Brain retrieval passes only normalized safe configured paths to fetch" do
+    parent = self()
+
+    fetch_fun = fn _repo, paths ->
+      send(parent, {:company_brain_fetch_paths, paths})
+      {:ok, [%{path: "meetings/2026-05-01.md", summary: "Decision notes"}]}
+    end
+
+    assert {:ok, [%{path: "meetings/2026-05-01.md"}]} =
+             GitHub.CompanyBrain.retrieve(%{
+               company_brain_repo: "acme/company-brain",
+               company_brain_paths: ["meetings//", "meetings/../private", "/absolute", "", "research/"],
+               fetch_fun: fetch_fun
+             })
+
+    assert_receive {:company_brain_fetch_paths, ["meetings", "research"]}
   end
 
   test "Company Brain retrieval returns provenance only and bounds summaries" do
