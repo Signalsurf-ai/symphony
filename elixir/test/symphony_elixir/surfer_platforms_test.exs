@@ -399,6 +399,26 @@ defmodule SymphonyElixir.SurferPlatformsTest do
            ] = refs
   end
 
+  test "Company Brain retrieval rejects traversal-looking paths inside allowed prefixes" do
+    fetch_fun = fn _repo, _paths ->
+      {:ok,
+       [
+         %{path: "meetings/2026-05-01.md", summary: "Decision notes"},
+         %{path: "meetings/../private/secrets.md", summary: "must not leak"},
+         %{path: "/meetings/absolute.md", summary: "must not leak"}
+       ]}
+    end
+
+    assert {:ok, refs} =
+             GitHub.CompanyBrain.retrieve(%{
+               company_brain_repo: "acme/company-brain",
+               company_brain_paths: ["meetings/"],
+               fetch_fun: fetch_fun
+             })
+
+    assert [%{path: "meetings/2026-05-01.md"}] = refs
+  end
+
   test "Company Brain retrieval returns provenance only and bounds summaries" do
     long_summary = String.duplicate("a", 520)
     secret_summary = "Routing note Authorization: Bearer brain-secret api_key=brain-api-key"

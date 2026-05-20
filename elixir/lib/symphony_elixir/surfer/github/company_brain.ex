@@ -10,8 +10,10 @@ defmodule SymphonyElixir.Surfer.GitHub.CompanyBrain do
   @spec retrieve(map()) :: {:ok, [map()]} | {:error, term()}
   def retrieve(%{company_brain_repo: repo, company_brain_paths: paths, fetch_fun: fetch_fun})
       when is_binary(repo) and is_list(paths) and is_function(fetch_fun, 2) do
+    allowed_paths = normalize_allowed_paths(paths)
+
     with {:ok, refs} <- fetch_fun.(repo, paths) do
-      {:ok, refs |> Enum.filter(&allowed_path?(&1, paths)) |> Enum.map(&background_ref(&1, repo))}
+      {:ok, refs |> Enum.filter(&allowed_path?(&1, allowed_paths)) |> Enum.map(&background_ref(&1, repo))}
     end
   end
 
@@ -30,11 +32,33 @@ defmodule SymphonyElixir.Surfer.GitHub.CompanyBrain do
     |> Map.put(:authoritative?, false)
   end
 
-  defp allowed_path?(ref, paths) when is_map(ref) do
-    path = string_value(ref, :path)
-
-    is_binary(path) and Enum.any?(paths, &String.starts_with?(path, &1))
+  defp allowed_path?(ref, allowed_paths) when is_map(ref) do
+    with path when is_binary(path) <- ref |> string_value(:path) |> safe_repo_path() do
+      Enum.any?(allowed_paths, &path_allowed?(path, &1))
+    end
   end
+
+  defp normalize_allowed_paths(paths) do
+    paths
+    |> Enum.map(&safe_repo_path/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp path_allowed?(path, allowed_path), do: path == allowed_path or String.starts_with?(path, allowed_path <> "/")
+
+  defp safe_repo_path(path) when is_binary(path) do
+    path = String.trim(path)
+    segments = String.split(path, "/", trim: true)
+
+    cond do
+      path == "" -> nil
+      String.starts_with?(path, "/") -> nil
+      Enum.any?(segments, &(&1 in [".", ".."])) -> nil
+      true -> Enum.join(segments, "/")
+    end
+  end
+
+  defp safe_repo_path(_path), do: nil
 
   defp string_value(ref, key) when is_map(ref) do
     case Map.get(ref, key) || Map.get(ref, to_string(key)) do
