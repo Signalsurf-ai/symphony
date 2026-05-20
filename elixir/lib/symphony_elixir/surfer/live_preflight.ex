@@ -61,6 +61,7 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
     {failed_checks, passed_checks} =
       {[], []}
       |> check_public_url(env)
+      |> check_surfer_paused(env)
       |> maybe_check_runtime_paths(path_check?, env, path_checker)
       |> maybe_check_sqlite_path(path_check?, env, sqlite_path_checker)
       |> maybe_check_codex(codex_check?, command, command_runner)
@@ -184,6 +185,27 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
   defp public_ip?({a, _b, _c, _d, _e, _f, _g, _h}) when a >= 0xFF00, do: false
 
   defp public_ip?(_address), do: true
+
+  defp check_surfer_paused({failed, passed}, env) do
+    case Map.get(env, "SURFER_PAUSED") do
+      value when is_binary(value) ->
+        if truthy_env?(value) do
+          {[%{name: :surfer_paused, reason: :must_be_unpaused_for_live_smoke} | failed], passed}
+        else
+          {failed, [:surfer_unpaused | passed]}
+        end
+
+      _missing ->
+        {failed, passed}
+    end
+  end
+
+  defp truthy_env?(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> then(&(&1 in ["1", "true", "yes", "on"]))
+  end
 
   defp maybe_check_runtime_paths({failed, passed}, false, _env, _path_checker), do: {failed, passed}
 

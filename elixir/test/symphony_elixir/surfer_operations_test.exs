@@ -759,6 +759,13 @@ defmodule SymphonyElixir.SurferOperationsTest do
     refute workflow =~ "LINEAR_PROJECT_SLUG"
   end
 
+  test "Surfer docs tell operators to unpause before live preflight" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "A passing preflight also requires Surfer to be unpaused"
+    assert readme =~ "`SURFER_PAUSED=true` fails preflight"
+  end
+
   test "Surfer docs describe redacted run lookup correlation columns" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 

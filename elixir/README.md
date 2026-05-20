@@ -389,6 +389,9 @@ been created. A passing preflight verifies required live-smoke inputs, non-empty
 channel allowlists, writable workspace/log/state and Codex home paths, a writable SQLite ledger
 parent directory, and the Codex login status command; it does not replace the Linear, Discord,
 GitHub, and runner smoke tests.
+A passing preflight also requires Surfer to be unpaused. `SURFER_PAUSED=true` fails preflight
+because live smoke starts with webhook dispatch checks; test the pause switch later in the smoke
+sequence.
 
 Authenticate Codex once with the mounted Codex home. This is where the operator-owned OpenAI Pro
 OAuth session lives; do not bake it into the image.
