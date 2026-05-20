@@ -857,6 +857,70 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute_receive {:unexpected_dispatch, _run_id}, 100
   end
 
+  test "Linear webhook rejects invalid timestamps without dispatching" do
+    previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
+    on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)
+    System.put_env("LINEAR_WEBHOOK_SECRET", "secret")
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: $LINEAR_WEBHOOK_SECRET
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+    handler_id = {__MODULE__, self(), :linear_invalid_timestamp}
+
+    :telemetry.attach(
+      handler_id,
+      [:symphony, :surfer, :signature_failures],
+      fn event, measurements, metadata, _config ->
+        send(parent, {:telemetry, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        webhookTimestamp: "not-a-millisecond-timestamp",
+        type: "AgentSessionEvent",
+        action: "created",
+        agentSession: %{
+          id: "session-invalid-timestamp",
+          issue: %{id: "issue-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
+        }
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("linear-signature", linear_signature(body, "secret"))
+      |> post("/webhooks/linear/agent", body)
+
+    assert json_response(conn, 401)["error"]["code"] == "invalid_timestamp"
+    assert_receive {:telemetry, [:symphony, :surfer, :signature_failures], %{count: 1}, linear_failure}
+    assert linear_failure == %{platform: :linear, reason: :invalid_timestamp}
+    refute_receive {:unexpected_dispatch, _run_id}, 100
+  end
+
   test "Linear webhook rejects unsupported agent session actions without dispatching" do
     previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
     on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)

@@ -97,6 +97,10 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
           record_signature_failure(:linear, :stale_timestamp)
           error_response(conn, 401, "stale_timestamp", "Linear webhook timestamp is stale")
 
+        {:error, :invalid_timestamp} ->
+          record_signature_failure(:linear, :invalid_timestamp)
+          error_response(conn, 401, "invalid_timestamp", "Linear webhook timestamp is invalid")
+
         {:error, {:ledger_claim_failed, reason}} ->
           error_response(conn, 503, "ledger_claim_failed", "Surfer run ledger claim failed: #{safe_inspect(reason)}")
 
