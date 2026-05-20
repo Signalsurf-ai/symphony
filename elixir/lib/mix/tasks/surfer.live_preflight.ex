@@ -1,6 +1,7 @@
 defmodule Mix.Tasks.Surfer.LivePreflight do
   use Mix.Task
 
+  alias SymphonyElixir.Config
   alias SymphonyElixir.Surfer.LivePreflight
 
   @shortdoc "Check Surfer v0.1 live smoke prerequisites"
@@ -37,7 +38,8 @@ defmodule Mix.Tasks.Surfer.LivePreflight do
     result =
       LivePreflight.check(
         codex_check?: !Keyword.get(opts, :skip_codex, false),
-        codex_command: Keyword.get(opts, :codex_command, "codex login status")
+        codex_command: Keyword.get(opts, :codex_command, "codex login status"),
+        configured_paused?: Config.settings!().surfer.paused
       )
 
     if result.ok? do

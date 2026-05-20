@@ -5,6 +5,8 @@ defmodule Mix.Tasks.Surfer.LivePreflightTest do
 
   alias Mix.Tasks.Surfer.LivePreflight, as: LivePreflightTask
   alias SymphonyElixir.Surfer.LivePreflight
+  alias SymphonyElixir.Workflow
+  alias SymphonyElixir.WorkflowStore
 
   setup do
     Mix.Task.reenable("surfer.live_preflight")
@@ -90,6 +92,43 @@ defmodule Mix.Tasks.Surfer.LivePreflightTest do
     assert error_output =~ "Failed sqlite_path SURFER_SQLITE_PATH=\"/missing-state/surfer.sqlite3\": :missing_directory"
   end
 
+  test "fails when workflow config keeps Surfer paused before live smoke" do
+    {env, cleanup} = required_env_with_paths()
+    workflow_root = Path.join(System.tmp_dir!(), "surfer-live-preflight-paused-#{System.unique_integer([:positive])}")
+    workflow_file = Path.join(workflow_root, "WORKFLOW.md")
+    original_workflow_file = Application.get_env(:symphony_elixir, :workflow_file_path)
+
+    on_exit(fn ->
+      cleanup.()
+      File.rm_rf(workflow_root)
+      restore_workflow_file_path(original_workflow_file)
+    end)
+
+    File.mkdir_p!(workflow_root)
+
+    File.write!(workflow_file, """
+    ---
+    tracker:
+      kind: memory
+    surfer:
+      paused: true
+    ---
+    Prompt
+    """)
+
+    Workflow.set_workflow_file_path(workflow_file)
+    Enum.each(env, fn {key, value} -> System.put_env(key, value) end)
+
+    error_output =
+      capture_io(:stderr, fn ->
+        assert_raise Mix.Error, ~r/surfer.live_preflight failed/, fn ->
+          LivePreflightTask.run(["--skip-codex"])
+        end
+      end)
+
+    assert error_output =~ "Failed surfer_paused: :must_be_unpaused_for_live_smoke"
+  end
+
   defp required_env do
     %{
       "LINEAR_ACCESS_TOKEN" => "linear-access-token",
@@ -128,5 +167,18 @@ defmodule Mix.Tasks.Surfer.LivePreflightTest do
       |> Map.put("SURFER_SQLITE_PATH", Path.join(paths["SURFER_STATE_DIR"], "surfer.sqlite3"))
 
     {env, fn -> File.rm_rf(root) end}
+  end
+
+  defp restore_workflow_file_path(nil) do
+    Application.delete_env(:symphony_elixir, :workflow_file_path)
+    maybe_reload_workflow_store()
+  end
+
+  defp restore_workflow_file_path(path) do
+    Workflow.set_workflow_file_path(path)
+  end
+
+  defp maybe_reload_workflow_store do
+    if Process.whereis(WorkflowStore), do: WorkflowStore.force_reload()
   end
 end

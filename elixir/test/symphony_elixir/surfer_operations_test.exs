@@ -764,6 +764,7 @@ defmodule SymphonyElixir.SurferOperationsTest do
 
     assert readme =~ "A passing preflight also requires Surfer to be unpaused"
     assert readme =~ "`SURFER_PAUSED=true` fails preflight"
+    assert readme =~ "`surfer.paused: true` fails preflight"
   end
 
   test "Surfer docs describe redacted run lookup correlation columns" do

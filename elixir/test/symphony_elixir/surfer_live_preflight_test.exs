@@ -92,6 +92,16 @@ defmodule SymphonyElixir.SurferLivePreflightTest do
     assert %{name: :surfer_paused, reason: :must_be_unpaused_for_live_smoke} in result.failed_checks
   end
 
+  test "fails when Surfer is configured paused before live smoke" do
+    {env, cleanup} = required_env_with_paths()
+    on_exit(cleanup)
+
+    result = LivePreflight.check(env: env, codex_check?: false, configured_paused?: true)
+
+    refute result.ok?
+    assert %{name: :surfer_paused, reason: :must_be_unpaused_for_live_smoke} in result.failed_checks
+  end
+
   test "default check reads process environment and Codex login status" do
     original_env = Map.new(LivePreflight.required_env_vars(), &{&1, System.get_env(&1)})
     original_path = System.get_env("PATH")

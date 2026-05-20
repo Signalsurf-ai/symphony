@@ -55,13 +55,14 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
     command_runner = Keyword.get(opts, :command_runner, &run_command/1)
     path_checker = Keyword.get(opts, :path_checker, &writable_directory_status/1)
     sqlite_path_checker = Keyword.get(opts, :sqlite_path_checker, &writable_sqlite_path_status/1)
+    configured_paused? = Keyword.get(opts, :configured_paused?, false)
 
     missing_env = missing_env(env)
 
     {failed_checks, passed_checks} =
       {[], []}
       |> check_public_url(env)
-      |> check_surfer_paused(env)
+      |> check_surfer_paused(env, configured_paused?)
       |> maybe_check_runtime_paths(path_check?, env, path_checker)
       |> maybe_check_sqlite_path(path_check?, env, sqlite_path_checker)
       |> maybe_check_codex(codex_check?, command, command_runner)
@@ -186,17 +187,17 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
 
   defp public_ip?(_address), do: true
 
-  defp check_surfer_paused({failed, passed}, env) do
-    case Map.get(env, "SURFER_PAUSED") do
-      value when is_binary(value) ->
-        if truthy_env?(value) do
-          {[%{name: :surfer_paused, reason: :must_be_unpaused_for_live_smoke} | failed], passed}
-        else
-          {failed, [:surfer_unpaused | passed]}
-        end
+  defp check_surfer_paused({failed, passed}, env, configured_paused?) do
+    env_paused? =
+      case Map.get(env, "SURFER_PAUSED") do
+        value when is_binary(value) -> truthy_env?(value)
+        _missing -> false
+      end
 
-      _missing ->
-        {failed, passed}
+    if configured_paused? or env_paused? do
+      {[%{name: :surfer_paused, reason: :must_be_unpaused_for_live_smoke} | failed], passed}
+    else
+      {failed, [:surfer_unpaused | passed]}
     end
   end
 
