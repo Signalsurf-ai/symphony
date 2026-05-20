@@ -280,6 +280,14 @@ lookup.
     `>= 80%` successful runs with failed attempts triaged and visible in Linear, Discord, the
     ledger, or the operator lookup.
 
+Live-smoke sample record:
+
+| Run ID | Surface | Scenario | Result | Evidence | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `<run_id>` | Linear | Delegate issue | Pass/fail | Linear activity + run lookup URL | |
+| `<run_id>` | Discord | `/surfer run` | Pass/fail | Discord response + Linear issue + PR URL | |
+| `<run_id>` | Operator | Pause and lookup | Pass/fail | Loopback pause response + run lookup URL | |
+
 Release SLOs to check during live smoke:
 
 - Linear webhook ACK latency: p95 < 5 seconds.

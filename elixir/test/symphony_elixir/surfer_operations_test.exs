@@ -764,6 +764,16 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert readme =~ ~r/>=\s*80%/
   end
 
+  test "Surfer hosting docs include a live-smoke evidence record template" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "Live-smoke sample record"
+    assert readme =~ "| Run ID | Surface | Scenario | Result | Evidence | Notes |"
+    assert readme =~ "| Linear | Delegate issue |"
+    assert readme =~ "| Discord | `/surfer run` |"
+    assert readme =~ "| Operator | Pause and lookup |"
+  end
+
   test "Surfer hosting docs include measurable PRD SLOs and alert triggers" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 
