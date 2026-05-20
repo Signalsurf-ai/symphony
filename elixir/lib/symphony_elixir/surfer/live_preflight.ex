@@ -189,17 +189,23 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
 
   defp maybe_check_runtime_paths({failed, passed}, true, env, path_checker) do
     Enum.reduce(@runtime_path_env, {failed, passed}, fn {key, name}, {failed_acc, passed_acc} ->
-      path = Map.get(env, key)
-
-      if missing_env_value?(key, path) do
-        {failed_acc, passed_acc}
-      else
-        case path_checker.(path) do
-          :ok -> {failed_acc, [name | passed_acc]}
-          {:error, reason} -> {[%{name: :runtime_path, env: key, path: path, reason: reason} | failed_acc], passed_acc}
-        end
-      end
+      check_runtime_path(key, name, Map.get(env, key), path_checker, failed_acc, passed_acc)
     end)
+  end
+
+  defp check_runtime_path(key, name, path, path_checker, failed, passed) do
+    if missing_env_value?(key, path) do
+      {failed, passed}
+    else
+      record_runtime_path_check(key, name, path, path_checker, failed, passed)
+    end
+  end
+
+  defp record_runtime_path_check(key, name, path, path_checker, failed, passed) do
+    case path_checker.(path) do
+      :ok -> {failed, [name | passed]}
+      {:error, reason} -> {[%{name: :runtime_path, env: key, path: path, reason: reason} | failed], passed}
+    end
   end
 
   defp maybe_check_sqlite_path({failed, passed}, false, _env, _sqlite_path_checker), do: {failed, passed}
@@ -241,15 +247,11 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
     end
   end
 
-  defp writable_directory_status(_path), do: {:error, :missing_directory}
-
   defp writable_sqlite_path_status(path) when is_binary(path) and path != "" do
     path
     |> Path.dirname()
     |> writable_directory_status()
   end
-
-  defp writable_sqlite_path_status(_path), do: {:error, :missing_directory}
 
   defp write_probe(path) do
     probe = Path.join(path, ".surfer-preflight-#{System.unique_integer([:positive])}")

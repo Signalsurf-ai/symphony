@@ -75,6 +75,7 @@ defmodule Mix.Tasks.Surfer.LivePreflightTest do
     on_exit(cleanup)
     Enum.each(env, fn {key, value} -> System.put_env(key, value) end)
     System.put_env("SURFER_PUBLIC_URL", "http://localhost:4000")
+    System.put_env("SURFER_LOGS_DIR", "/missing-logs")
     System.put_env("SURFER_SQLITE_PATH", "/missing-state/surfer.sqlite3")
 
     error_output =
@@ -85,6 +86,7 @@ defmodule Mix.Tasks.Surfer.LivePreflightTest do
       end)
 
     assert error_output =~ "Failed surfer_public_url: :must_be_https_url"
+    assert error_output =~ "Failed runtime_path SURFER_LOGS_DIR=\"/missing-logs\": :missing_directory"
     assert error_output =~ "Failed sqlite_path SURFER_SQLITE_PATH=\"/missing-state/surfer.sqlite3\": :missing_directory"
   end
 
