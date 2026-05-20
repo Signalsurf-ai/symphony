@@ -350,6 +350,24 @@ defmodule SymphonyElixir.SurferPlatformsTest do
              Discord.Ingress.normalize_message(event, allowed_guilds: ["guild-1"])
   end
 
+  test "Discord ingress preserves relay receipt time in normalized requests" do
+    event = %{
+      "id" => "message-1",
+      "guild_id" => "guild-1",
+      "channel_id" => "channel-1",
+      "content" => "surfer question"
+    }
+
+    assert {:ok, request} =
+             Discord.Ingress.normalize_message(event,
+               allowed_guilds: ["guild-1"],
+               allowed_channels: ["channel-1"],
+               received_at: "2026-05-19T10:30:00Z"
+             )
+
+    assert request.source.received_at == "2026-05-19T10:30:00Z"
+  end
+
   test "Discord issue creation calls Linear and posts a link back" do
     parent = self()
 

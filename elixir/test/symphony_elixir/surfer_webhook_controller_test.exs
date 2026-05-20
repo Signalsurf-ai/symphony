@@ -1940,9 +1940,12 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     parent = self()
 
     Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
-      send(parent, {:discord_dispatch, request.run_id})
+      send(parent, {:discord_dispatch, request})
       :ok
     end)
+
+    relay_timestamp = Integer.to_string(System.system_time(:second))
+    expected_received_at = DateTime.from_unix!(String.to_integer(relay_timestamp), :second) |> DateTime.to_iso8601()
 
     body =
       Jason.encode!(%{
@@ -1955,11 +1958,13 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     conn =
       build_conn()
       |> put_req_header("content-type", "application/json")
-      |> put_discord_message_relay_signature_headers(body, "relay-secret-next")
+      |> put_discord_message_relay_signature_headers(body, "relay-secret-next", relay_timestamp)
       |> post("/webhooks/discord/message", body)
 
     assert %{"ok" => true, "run_id" => run_id} = json_response(conn, 202)
-    assert_receive {:discord_dispatch, ^run_id}
+    assert_receive {:discord_dispatch, request}
+    assert request.run_id == run_id
+    assert request.source.received_at == expected_received_at
 
     assert {:ok, ^run_id} =
              RunLedger.lookup_idempotency_key(db_path, "discord_message:guild-1:channel-1:message-rotation-next:code_question")

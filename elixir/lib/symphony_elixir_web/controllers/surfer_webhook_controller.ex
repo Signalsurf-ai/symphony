@@ -161,7 +161,8 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
            {:ok, request} <-
              Discord.Ingress.normalize_message(params,
                allowed_guilds: discord.allowed_guilds,
-               allowed_channels: discord.allowed_channels
+               allowed_channels: discord.allowed_channels,
+               received_at: discord_signature_received_at(timestamp)
              ),
            :ok <- require_secret(discord.enabled, discord.bot_token, :missing_discord_bot_token) do
         with {:ok, response} <- claim_run(request, :discord),

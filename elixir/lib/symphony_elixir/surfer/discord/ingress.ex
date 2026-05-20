@@ -61,9 +61,17 @@ defmodule SymphonyElixir.Surfer.Discord.Ingress do
         {:error, {:unauthorized_channel, channel_id}}
 
       true ->
-        RunRequest.from_discord_message(message)
+        message
+        |> put_received_at(Keyword.get(opts, :received_at))
+        |> RunRequest.from_discord_message()
     end
   end
+
+  defp put_received_at(message, received_at) when is_binary(received_at) do
+    Map.put(message, "timestamp", received_at)
+  end
+
+  defp put_received_at(message, _received_at), do: message
 
   defp verify_timestamp(timestamp, opts) do
     case Integer.parse(timestamp) do
