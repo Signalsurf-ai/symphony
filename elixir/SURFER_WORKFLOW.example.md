@@ -1,19 +1,10 @@
 ---
 tracker:
-  kind: linear
-  api_key: $LINEAR_API_KEY
-  project_slug: $LINEAR_PROJECT_SLUG
-  active_states:
-    - Todo
-    - In Progress
-    - Rework
-    - Merging
-  terminal_states:
-    - Closed
-    - Cancelled
-    - Canceled
-    - Duplicate
-    - Done
+  # Surfer v0.1 receives Linear work through AgentSessionEvent webhooks. Keep
+  # the legacy Linear project tracker disabled by using the in-memory tracker for
+  # this hosting workflow; Linear remains canonical through the agent session and
+  # issue IDs carried by each webhook.
+  kind: memory
 polling:
   # Surfer v0.1 is webhook-first through Linear AgentSessionEvent and Discord
   # Interactions. Keep the legacy Symphony Linear project poller disabled in this

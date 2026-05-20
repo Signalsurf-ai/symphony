@@ -1,6 +1,6 @@
 defmodule SymphonyElixir.Linear.Client do
   @moduledoc """
-  Thin Linear GraphQL client for polling candidate issues.
+  Thin Linear GraphQL client for legacy polling and Surfer Linear writes.
   """
 
   require Logger
@@ -381,7 +381,7 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp graphql_headers do
-    case Config.settings!().tracker.api_key do
+    case linear_graphql_token(Config.settings!()) do
       nil ->
         {:error, :missing_linear_api_token}
 
@@ -393,6 +393,19 @@ defmodule SymphonyElixir.Linear.Client do
          ]}
     end
   end
+
+  defp linear_graphql_token(settings) do
+    surfer_token = settings.surfer.platforms.linear.access_token
+    tracker_token = settings.tracker.api_key
+
+    cond do
+      settings.surfer.platforms.linear.enabled == true and nonblank?(surfer_token) -> surfer_token
+      nonblank?(tracker_token) -> tracker_token
+      true -> nil
+    end
+  end
+
+  defp nonblank?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp post_graphql_request(payload, headers) do
     Req.post(Config.settings!().tracker.endpoint,

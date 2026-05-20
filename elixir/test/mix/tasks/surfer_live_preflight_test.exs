@@ -31,7 +31,7 @@ defmodule Mix.Tasks.Surfer.LivePreflightTest do
       end)
 
     assert error_output =~ "Missing required live smoke environment:"
-    assert error_output =~ "LINEAR_API_KEY"
+    assert error_output =~ "LINEAR_ACCESS_TOKEN"
     assert error_output =~ "DISCORD_MESSAGE_INGRESS_SECRET"
     assert error_output =~ "DISCORD_APPLICATION_ID"
     assert error_output =~ "SURFER_PUBLIC_URL"
@@ -90,10 +90,8 @@ defmodule Mix.Tasks.Surfer.LivePreflightTest do
 
   defp required_env do
     %{
-      "LINEAR_API_KEY" => "linear-api-key",
       "LINEAR_ACCESS_TOKEN" => "linear-access-token",
       "LINEAR_WEBHOOK_SECRET" => "linear-webhook-secret",
-      "LINEAR_PROJECT_SLUG" => "coding-surfer",
       "LINEAR_TEAM_ID" => "team-1",
       "DISCORD_PUBLIC_KEY" => String.duplicate("a", 64),
       "DISCORD_MESSAGE_INGRESS_SECRET" => "discord-message-relay-secret",

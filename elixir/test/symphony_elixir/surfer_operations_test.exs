@@ -742,6 +742,7 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert {:ok, %{config: workflow}} =
              SymphonyElixir.Workflow.load(Path.expand("../../SURFER_WORKFLOW.example.md", __DIR__))
 
+    assert get_in(workflow, ["tracker", "kind"]) == "memory"
     assert get_in(workflow, ["polling", "enabled"]) == false
     refute Map.has_key?(workflow["polling"], "interval_ms")
   end
@@ -753,6 +754,15 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert readme =~ "Surfer v0.1 does not poll Linear for normal tasks."
     assert readme =~ ~r/Only Linear `AgentSessionEvent` webhooks and\s+Discord webhooks start Surfer runs/
     assert workflow =~ "Do not turn this on to make Surfer watch Linear"
+    refute workflow =~ "LINEAR_PROJECT_SLUG"
+  end
+
+  test "Surfer host env example does not require legacy Linear polling credentials" do
+    env_example = File.read!(Path.expand("../../.env.surfer.example", __DIR__))
+
+    refute env_example =~ "LINEAR_API_KEY"
+    refute env_example =~ "LINEAR_PROJECT_SLUG"
+    assert env_example =~ "LINEAR_ACCESS_TOKEN"
   end
 
   test "Surfer docs require signed Discord message relay ingress" do

@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.SurferLinearWebhookTest do
   use SymphonyElixir.TestSupport
 
+  alias SymphonyElixir.{Linear.Client, Workflow, WorkflowStore}
   alias SymphonyElixir.Surfer.Linear.{Session, Webhook}
 
   test "verifies Linear webhook signatures against raw body and timestamp" do
@@ -86,5 +87,38 @@ defmodule SymphonyElixir.SurferLinearWebhookTest do
              %{label: "Surfer run", url: "http://127.0.0.1:4000/runs/surf_run_1"},
              %{label: "GitHub PR", url: "https://github.com/acme/repo/pull/1"}
            ]
+  end
+
+  test "Linear GraphQL writes can use Surfer access token without legacy polling tracker credentials" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: linear-webhook-secret
+            access_token: linear-agent-token
+        storage:
+          sqlite_path: /tmp/surfer.sqlite3
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    request_fun = fn _payload, headers ->
+      send(parent, {:linear_headers, headers})
+      {:ok, %{status: 200, body: %{"data" => %{}}}}
+    end
+
+    assert {:ok, %{"data" => %{}}} = Client.graphql("query SurferToken { viewer { id } }", %{}, request_fun: request_fun)
+    assert_receive {:linear_headers, headers}
+    assert {"Authorization", "linear-agent-token"} in headers
   end
 end

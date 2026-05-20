@@ -7,8 +7,8 @@ defmodule SymphonyElixir.SurferLivePreflightTest do
     result = LivePreflight.check(env: %{}, codex_check?: false, path_check?: false)
 
     refute result.ok?
-    assert "LINEAR_API_KEY" in result.missing_env
     assert "LINEAR_WEBHOOK_SECRET" in result.missing_env
+    assert "LINEAR_ACCESS_TOKEN" in result.missing_env
     assert "DISCORD_MESSAGE_INGRESS_SECRET" in result.missing_env
     assert "DISCORD_APPLICATION_ID" in result.missing_env
     assert "GITHUB_TOKEN" in result.missing_env
@@ -278,10 +278,8 @@ defmodule SymphonyElixir.SurferLivePreflightTest do
 
   defp required_env do
     %{
-      "LINEAR_API_KEY" => "linear-api-key",
       "LINEAR_ACCESS_TOKEN" => "linear-access-token",
       "LINEAR_WEBHOOK_SECRET" => "linear-webhook-secret",
-      "LINEAR_PROJECT_SLUG" => "coding-surfer",
       "LINEAR_TEAM_ID" => "team-1",
       "DISCORD_PUBLIC_KEY" => String.duplicate("a", 64),
       "DISCORD_MESSAGE_INGRESS_SECRET" => "discord-message-relay-secret",

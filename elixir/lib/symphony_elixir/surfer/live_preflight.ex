@@ -4,10 +4,8 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
   """
 
   @platform_env [
-    "LINEAR_API_KEY",
     "LINEAR_ACCESS_TOKEN",
     "LINEAR_WEBHOOK_SECRET",
-    "LINEAR_PROJECT_SLUG",
     "LINEAR_TEAM_ID",
     "DISCORD_PUBLIC_KEY",
     "DISCORD_MESSAGE_INGRESS_SECRET",

@@ -303,10 +303,8 @@ the service will still fail closed until real platform secrets and mounted paths
 
 Fill in at minimum:
 
-- `LINEAR_API_KEY`
 - `LINEAR_ACCESS_TOKEN`
 - `LINEAR_WEBHOOK_SECRET`
-- `LINEAR_PROJECT_SLUG`
 - `LINEAR_TEAM_ID`
 - `DISCORD_PUBLIC_KEY`
 - `DISCORD_MESSAGE_INGRESS_SECRET`
@@ -388,8 +386,10 @@ Linear:
 3. Enable Agent session events.
 4. Set the webhook URL to `https://<your-vps-host>/webhooks/linear/agent`, or to the configured
    `surfer.platforms.linear.webhook_path` when overriding the default.
-5. Put the webhook secret in `LINEAR_WEBHOOK_SECRET`.
-6. During rotation, put the incoming replacement secret in `LINEAR_WEBHOOK_SECRET_NEXT` until Linear has switched over.
+5. Put the app-user OAuth token in `LINEAR_ACCESS_TOKEN`; Surfer uses it for agent activities,
+   session external URLs, and Discord-to-Linear issue creation.
+6. Put the webhook secret in `LINEAR_WEBHOOK_SECRET`.
+7. During rotation, put the incoming replacement secret in `LINEAR_WEBHOOK_SECRET_NEXT` until Linear has switched over.
 
 Discord:
 
@@ -448,6 +448,8 @@ legacy poller to disabled. If `polling.enabled: true` is configured together wit
 ingress, config validation fails. Run fallback project polling only from a separate legacy Symphony
 workflow with Surfer platform ingress disabled.
 The poller is not needed for normal Surfer delegation, mention, or follow-up prompt handling.
+The Surfer hosting workflow also uses `tracker.kind: memory`; do not provide `LINEAR_API_KEY` or
+`LINEAR_PROJECT_SLUG` unless you are running a separate legacy polling workflow.
 
 ## Configuration
 
