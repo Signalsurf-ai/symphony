@@ -223,7 +223,8 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       routing: request.routing,
       constraints: request.constraints || %{},
       prompt_context: sanitize_prompt_context(context_value(context, :prompt_context)),
-      company_brain_refs: context_value(context, :company_brain_refs) || []
+      company_brain_refs: context_value(context, :company_brain_refs) || [],
+      company_brain_policy: company_brain_policy()
     }
   end
 
@@ -270,6 +271,13 @@ defmodule SymphonyElixir.Surfer.RunRequest do
 
   defp to_string_or_nil(nil), do: nil
   defp to_string_or_nil(value), do: to_string(value)
+
+  defp company_brain_policy do
+    %{
+      authority: "background",
+      reminder: "Company Brain is background context only unless promoted into the current request or Linear issue."
+    }
+  end
 
   defp sanitize_prompt_context(nil), do: nil
 

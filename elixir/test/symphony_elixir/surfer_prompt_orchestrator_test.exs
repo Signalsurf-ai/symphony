@@ -152,6 +152,33 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     refute prompt =~ "request-body-secret"
   end
 
+  test "prompt builder exposes Company Brain background policy" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: """
+      Brain authority: {{ surfer.company_brain_policy.authority }}
+      Brain policy: {{ surfer.company_brain_policy.reminder }}
+      """
+    )
+
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-company-brain-policy-1",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question: should we use old meeting notes?"
+             })
+
+    issue = %Issue{id: "issue-company-brain-policy-1", identifier: "BRAIN-POLICY", title: "Brain policy", state: "Todo"}
+
+    prompt =
+      PromptBuilder.build_prompt(issue,
+        surfer_context: RunRequest.surfer_context(request)
+      )
+
+    assert prompt =~ "Brain authority: background"
+    assert prompt =~ "Company Brain is background context only unless promoted into the current request or Linear issue"
+  end
+
   test "orchestrator direct dispatch converts a normalized run request into an agent run" do
     parent = self()
     handler_id = {__MODULE__, self(), :orchestrator_runtime_metrics}
