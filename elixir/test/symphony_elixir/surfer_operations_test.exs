@@ -771,6 +771,13 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert readme =~ "off-host"
   end
 
+  test "Surfer hosting docs name the v0.1 process manager and reverse proxy boundary" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "Docker Compose is the v0.1 process manager"
+    assert readme =~ ~r/public reverse proxy must expose\s+only webhook paths/
+  end
+
   test "Surfer docs list unsupported Linear-native features and GitHub ingress non-support" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 

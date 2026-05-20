@@ -201,9 +201,12 @@ live Discord or Linear workspace install.
 
 ### How to really host Surfer v0.1
 
-Use Docker Compose on one trusted VPS. Put the public HTTPS reverse proxy in front of only the
-webhook paths, keep the operator API loopback-only, and treat Linear as the durable task state. The
-SQLite ledger is local operational state for run claims, events, links, pending writes, and lookup.
+Use Docker Compose on one trusted VPS. Docker Compose is the v0.1 process manager, using the
+Compose `restart: unless-stopped` policy and the container health check as the local restart signal.
+Put the public HTTPS reverse proxy in front of the service, but the public reverse proxy must expose
+only webhook paths. Keep the operator API loopback-only, and treat Linear as the durable task state.
+The SQLite ledger is local operational state for run claims, events, links, pending writes, and
+lookup.
 
 1. Clone this repository on the VPS and work from `symphony/elixir`.
 2. Point DNS and TLS at the VPS. Proxy HTTPS traffic to the loopback-bound container port `4000`
