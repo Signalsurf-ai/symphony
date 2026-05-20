@@ -885,7 +885,12 @@ defmodule SymphonyElixir.Surfer.RunLedger do
       conn,
       """
       UPDATE runs
-      SET status = ?, updated_at = ?, completed_at = COALESCE(?, completed_at), error_code = ?, error_message = ?
+      SET status = ?,
+          updated_at = ?,
+          completed_at = COALESCE(?, completed_at),
+          error_code = ?,
+          error_message = ?,
+          github_pr_number = COALESCE(?, github_pr_number)
       WHERE run_id = ?;
       """,
       [
@@ -894,6 +899,7 @@ defmodule SymphonyElixir.Surfer.RunLedger do
         completed_at,
         Keyword.get(opts, :error_code) |> redacted_optional(),
         Keyword.get(opts, :error_message) |> redacted_optional(),
+        Keyword.get(opts, :github_pr_number) |> format_optional(),
         run_id
       ]
     )

@@ -223,7 +223,8 @@ defmodule SymphonyElixir.SurferOperationsTest do
                actor: "surfer"
              )
 
-    assert {:ok, %{"status" => "awaiting_review"}} = RunLedger.get_run(db_path, request.run_id)
+    assert {:ok, %{"status" => "awaiting_review", "github_pr_number" => "42"}} =
+             RunLedger.get_run(db_path, request.run_id)
 
     assert {:ok, links} = RunLedger.list_links(db_path, request.run_id)
 

@@ -244,6 +244,7 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
       RunLedger.update_status(db_path, run_id, "awaiting_review",
         reason: Keyword.get(opts, :reason, "GitHub PR opened"),
         actor: Keyword.get(opts, :actor, "surfer"),
+        github_pr_number: pr_context.external_id,
         external_write_status: external_write_status(linear: linear_write_status)
       )
     end
