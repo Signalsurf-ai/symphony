@@ -2108,7 +2108,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert json_response(default_conn, 404) == %{"error" => %{"code" => "not_found", "message" => "Route not found"}}
   end
 
-  test "GitHub webhook-looking paths are not platform ingress in V0.1" do
+  test "GitHub webhook-looking paths are not platform ingress in v0.1" do
     previous_token = System.get_env("GITHUB_TOKEN")
     on_exit(fn -> restore_env("GITHUB_TOKEN", previous_token) end)
     System.put_env("GITHUB_TOKEN", "github-token-secret")

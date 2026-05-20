@@ -1,6 +1,6 @@
 defmodule SymphonyElixir.Surfer.LivePreflight do
   @moduledoc """
-  Preflight checks for Surfer V0.1 live smoke validation.
+  Preflight checks for Surfer v0.1 live smoke validation.
   """
 
   @platform_env [

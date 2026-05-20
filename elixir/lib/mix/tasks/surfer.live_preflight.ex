@@ -3,10 +3,10 @@ defmodule Mix.Tasks.Surfer.LivePreflight do
 
   alias SymphonyElixir.Surfer.LivePreflight
 
-  @shortdoc "Check Surfer V0.1 live smoke prerequisites"
+  @shortdoc "Check Surfer v0.1 live smoke prerequisites"
 
   @moduledoc """
-  Checks required Surfer V0.1 live smoke inputs before running platform smokes.
+  Checks required Surfer v0.1 live smoke inputs before running platform smokes.
 
       mix surfer.live_preflight
       mix surfer.live_preflight --skip-codex

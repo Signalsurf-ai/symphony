@@ -47,6 +47,8 @@ defmodule Mix.Tasks.Surfer.LivePreflightTest do
       end)
 
     assert output =~ "mix surfer.live_preflight"
+    assert output =~ "Surfer v0.1"
+    refute String.contains?(output, "Surfer " <> "V" <> "0.1")
   end
 
   test "fails on invalid options" do
