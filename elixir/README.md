@@ -280,6 +280,20 @@ lookup.
     `>= 80%` successful runs with failed attempts triaged and visible in Linear, Discord, the
     ledger, or the operator lookup.
 
+Release SLOs to check during live smoke:
+
+- Linear webhook ACK latency: p95 < 5 seconds.
+- Linear time to first activity or external URL: p95 < 10 seconds.
+- Discord initial interaction response: p95 < 3 seconds.
+- Discord code-question first visible response: p95 < 30 seconds for fixture-size repo questions.
+- Duplicate dispatch rate under webhook redelivery tests: 0 duplicate runners.
+- Platform write outbox drain: 100% drained or explicitly failed with a visible reason.
+- Ambiguous repository routing: 100% visible failure or clarification, 0 silent dispatches.
+
+Alert or pause Surfer when signature failures spike, Linear start activity p95 exceeds 10 seconds,
+the failed-run rate exceeds 20% over a rolling sample of at least 10 runs, a budget cap is hit, disk
+pressure blocks new runs, or the Platform write outbox has pending items older than 10 minutes.
+
 Use the pause switch when the host should stop accepting new work:
 
 ```bash

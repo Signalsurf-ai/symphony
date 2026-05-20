@@ -764,6 +764,22 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert readme =~ ~r/>=\s*80%/
   end
 
+  test "Surfer hosting docs include measurable PRD SLOs and alert triggers" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "Linear webhook ACK latency"
+    assert readme =~ "p95 < 5 seconds"
+    assert readme =~ "Linear time to first activity or external URL"
+    assert readme =~ "p95 < 10 seconds"
+    assert readme =~ "Discord initial interaction response"
+    assert readme =~ "p95 < 3 seconds"
+    assert readme =~ "Duplicate dispatch rate under webhook redelivery tests"
+    assert readme =~ "0 duplicate runners"
+    assert readme =~ "Platform write outbox drain"
+    assert readme =~ "100% drained"
+    assert readme =~ "Platform write outbox has pending items older than 10 minutes"
+  end
+
   test "Surfer hosting docs choose a production ledger backup cadence and location" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 
