@@ -501,6 +501,32 @@ defmodule SymphonyElixir.SurferConfigTest do
     assert {:error, {:missing_surfer_platform_secret, :linear, :webhook_secret}} = Config.validate!()
   end
 
+  test "fails closed when Discord message relay secret is missing" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: /tmp/surfer.sqlite3
+        platforms:
+          discord:
+            enabled: true
+            public_key: discord-public-key
+            bot_token: discord-bot-token
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert {:error, {:missing_surfer_platform_secret, :discord, :message_ingress_secret}} =
+             Config.validate!()
+  end
+
   test "fails closed when GitHub App auth is configured for Surfer v0.1" do
     File.write!(
       Workflow.workflow_file_path(),

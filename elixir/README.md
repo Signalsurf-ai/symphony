@@ -303,7 +303,7 @@ Fill in at minimum:
 - `LINEAR_PROJECT_SLUG`
 - `LINEAR_TEAM_ID`
 - `DISCORD_PUBLIC_KEY`
-- `DISCORD_MESSAGE_INGRESS_SECRET` if `/webhooks/discord/message` is exposed for a gateway or relay
+- `DISCORD_MESSAGE_INGRESS_SECRET`
 - `DISCORD_BOT_TOKEN`
 - `DISCORD_APPLICATION_ID` for one-time `/surfer` command registration
 - `DISCORD_GUILD_ID`

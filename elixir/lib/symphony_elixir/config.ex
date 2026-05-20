@@ -148,6 +148,7 @@ defmodule SymphonyElixir.Config do
         {:linear, :webhook_secret, platforms.linear.enabled, platforms.linear.webhook_secret},
         {:linear, :access_token, platforms.linear.enabled, platforms.linear.access_token},
         {:discord, :public_key, platforms.discord.enabled, platforms.discord.public_key},
+        {:discord, :message_ingress_secret, platforms.discord.enabled, platforms.discord.message_ingress_secret},
         {:discord, :bot_token, platforms.discord.enabled, platforms.discord.bot_token},
         {:github, :token, platforms.github.enabled, platforms.github.token}
       ],
