@@ -9,6 +9,7 @@ defmodule SymphonyElixir.SurferLivePreflightTest do
     refute result.ok?
     assert "LINEAR_API_KEY" in result.missing_env
     assert "LINEAR_WEBHOOK_SECRET" in result.missing_env
+    assert "DISCORD_MESSAGE_INGRESS_SECRET" in result.missing_env
     assert "DISCORD_APPLICATION_ID" in result.missing_env
     assert "GITHUB_TOKEN" in result.missing_env
     assert "SURFER_PUBLIC_URL" in result.missing_env
@@ -267,6 +268,7 @@ defmodule SymphonyElixir.SurferLivePreflightTest do
       "LINEAR_PROJECT_SLUG" => "coding-surfer",
       "LINEAR_TEAM_ID" => "team-1",
       "DISCORD_PUBLIC_KEY" => String.duplicate("a", 64),
+      "DISCORD_MESSAGE_INGRESS_SECRET" => "discord-message-relay-secret",
       "DISCORD_APPLICATION_ID" => "app-1",
       "DISCORD_BOT_TOKEN" => "discord-bot-token",
       "DISCORD_GUILD_ID" => "guild-1",

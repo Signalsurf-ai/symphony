@@ -10,6 +10,7 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
     "LINEAR_PROJECT_SLUG",
     "LINEAR_TEAM_ID",
     "DISCORD_PUBLIC_KEY",
+    "DISCORD_MESSAGE_INGRESS_SECRET",
     "DISCORD_APPLICATION_ID",
     "DISCORD_BOT_TOKEN",
     "DISCORD_GUILD_ID",
