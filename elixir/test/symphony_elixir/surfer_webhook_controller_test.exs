@@ -1509,6 +1509,92 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert run["status"] == "cancelled"
   end
 
+  test "Linear paused ingress ACKs before slow error activity writes" do
+    previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
+    previous_token = System.get_env("LINEAR_ACCESS_TOKEN")
+
+    on_exit(fn ->
+      restore_env("LINEAR_WEBHOOK_SECRET", previous_secret)
+      restore_env("LINEAR_ACCESS_TOKEN", previous_token)
+    end)
+
+    System.put_env("LINEAR_WEBHOOK_SECRET", "secret")
+    System.put_env("LINEAR_ACCESS_TOKEN", "linear-token")
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-paused-fast-ack-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        paused: true
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: $LINEAR_ACCESS_TOKEN
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_session_activity_fun, fn session_id, type, body ->
+      send(parent, {:linear_error_activity_started, session_id, type, body})
+      Process.sleep(500)
+      send(parent, {:linear_error_activity_finished, session_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        webhookTimestamp: System.system_time(:millisecond),
+        webhookId: "webhook-paused-fast-ack-1",
+        type: "AgentSessionEvent",
+        action: "created",
+        agentSession: %{
+          id: "session-paused-fast-ack-1",
+          issue: %{id: "issue-paused-fast-ack-1", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
+        }
+      })
+
+    signature = :crypto.mac(:hmac, :sha256, "secret", body) |> Base.encode16(case: :lower)
+
+    request_task =
+      Task.async(fn ->
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("linear-signature", signature)
+        |> post("/webhooks/linear/agent", body)
+      end)
+
+    try do
+      assert_receive {:linear_error_activity_started, "session-paused-fast-ack-1", :error, activity_body}, 1_000
+      assert activity_body =~ "surfer_paused"
+      assert {:ok, conn} = Task.yield(request_task, 100)
+      assert %{"ok" => true, "paused" => true, "run_id" => run_id} = json_response(conn, 202)
+      refute_receive {:unexpected_dispatch, _run_id}, 200
+      assert {:ok, %{"status" => "cancelled"}} = RunLedger.get_run(db_path, run_id)
+      assert_receive {:linear_error_activity_finished, "session-paused-fast-ack-1"}, 1_000
+    after
+      Task.shutdown(request_task, :brutal_kill)
+    end
+  end
+
   test "Discord webhook rejects messages from unconfigured guilds" do
     File.write!(
       Workflow.workflow_file_path(),

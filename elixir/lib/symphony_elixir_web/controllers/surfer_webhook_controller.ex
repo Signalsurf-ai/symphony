@@ -694,25 +694,25 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
   defp paused_linear_response(response, request) do
     :ok = record_paused_run(response.run_id)
-    post_linear_error(request, :surfer_paused)
+    enqueue_linear_error(request, :surfer_paused)
     {:ok, Map.put(response, :paused, true)}
   end
 
   defp budget_cap_linear_response(response, request) do
     :ok = record_budget_cap_run(response.run_id)
-    post_linear_error(request, :daily_budget_cap_exceeded)
+    enqueue_linear_error(request, :daily_budget_cap_exceeded)
     {:ok, response |> Map.put(:budget_cap, true) |> Map.put(:dispatched, false)}
   end
 
   defp disk_pressure_linear_response(response, request) do
     :ok = record_disk_pressure_run(response.run_id)
-    post_linear_error(request, :workspace_disk_pressure)
+    enqueue_linear_error(request, :workspace_disk_pressure)
     {:ok, response |> Map.put(:disk_pressure, true) |> Map.put(:dispatched, false)}
   end
 
   defp linear_session_active_run_limit_response(response, request) do
     :ok = record_linear_session_active_run_limit(response.run_id, request)
-    post_linear_error(request, :linear_session_active_run_limit)
+    enqueue_linear_error(request, :linear_session_active_run_limit)
 
     {:ok,
      response
@@ -722,7 +722,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
   defp routing_error_linear_response(response, request, reason) do
     :ok = record_routing_blocked_run(response.run_id, reason)
-    post_linear_error(request, reason)
+    enqueue_linear_error(request, reason)
 
     {:ok,
      response
@@ -1057,16 +1057,48 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     end
   end
 
-  defp post_linear_error(%RunRequest{} = request, reason) do
-    session_id = linear_lineage_value(request, :agent_session_id)
-    body = "Surfer dispatch failed: #{safe_inspect(reason)}"
+  defp enqueue_linear_error(%RunRequest{} = request, reason) do
+    case start_ingress_task(fn -> post_linear_error(request, reason) end) do
+      :ok ->
+        :ok
 
-    if is_binary(session_id) do
+      {:error, task_reason} ->
+        record_pending_linear_error_task_start_failure(request, reason, task_reason)
+    end
+  end
+
+  defp post_linear_error(%RunRequest{} = request, reason) do
+    with {:ok, session_id, body} <- linear_error_activity(request, reason) do
       result = post_linear_session_activity(session_id, :error, body)
       record_pending_linear_activity_write(request, session_id, :error, body, result)
     end
 
     :ok
+  end
+
+  defp record_pending_linear_error_task_start_failure(%RunRequest{} = request, reason, task_reason) do
+    with {:ok, session_id, body} <- linear_error_activity(request, reason) do
+      record_pending_linear_activity_write(
+        request,
+        session_id,
+        :error,
+        body,
+        {:error, {:linear_error_task_start_failed, task_reason}}
+      )
+    end
+
+    :ok
+  end
+
+  defp linear_error_activity(%RunRequest{} = request, reason) do
+    session_id = linear_lineage_value(request, :agent_session_id)
+    body = "Surfer dispatch failed: #{safe_inspect(reason)}"
+
+    if is_binary(session_id) do
+      {:ok, session_id, body}
+    else
+      :skip
+    end
   end
 
   defp linear_lineage_value(%RunRequest{} = request, key) when is_atom(key) do
