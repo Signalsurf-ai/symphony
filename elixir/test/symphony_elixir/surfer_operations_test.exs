@@ -840,6 +840,13 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert readme =~ "GitHub webhook ingress"
   end
 
+  test "Surfer docs describe the selected run repository boundary for GitHub operations" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "GitHub PR creation/update and PR context reads require the selected run repository"
+    assert readme =~ ~r/Surfer\s+rejects GitHub operations when `repo` differs from `selected_repo`/
+  end
+
   test "Surfer host env example does not require legacy Linear polling credentials" do
     env_example = File.read!(Path.expand("../../.env.surfer.example", __DIR__))
 

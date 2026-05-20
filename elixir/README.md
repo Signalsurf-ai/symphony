@@ -174,12 +174,13 @@ notification webhook contract instead of re-enabling project polling as the defa
   write failures/timing, signature failures, Discord follow-up failures, webhook ACK timing, first
   Linear activity timing, Codex run timing, runtime gauges, workspace disk usage, daily budget
   remaining, pending-write backlog/stale age, and budget-cap hits.
-- GitHub outbound PR create/update/context helper with redacted review/comment bodies and API
-  error payloads, plus scoped Company Brain retrieval that passes provenance-only refs including
-  repo, path, commit, and freshness when available with redacted provenance fields and bounded
-  redacted summaries. GitHub webhook ingress is intentionally not implemented for v0.1. Configured
-  Company Brain path scopes are normalized before retrieval, and refs with absolute or
-  traversal-looking paths are rejected before they enter prompt context.
+- GitHub outbound PR create/update/context helper with selected-run-repository enforcement,
+  redacted review/comment bodies, and API error payloads, plus scoped Company Brain retrieval that
+  passes provenance-only refs including repo, path, commit, and freshness when available with
+  redacted provenance fields and bounded redacted summaries. GitHub webhook ingress is
+  intentionally not implemented for v0.1. Configured Company Brain path scopes are normalized
+  before retrieval, and refs with absolute or traversal-looking paths are rejected before they enter
+  prompt context.
 - Shared direct-dispatch claim checks so duplicate Linear issue runners are refused locally, plus
   shared SQLite checks that block a same-repository write run already active outside the current
   orchestrator process.
@@ -481,6 +482,8 @@ GitHub:
    on-demand Company Brain retrieval should be available.
 4. Surfer v0.1 uses GitHub only for outbound repository, PR, and Company Brain context operations;
    do not configure GitHub webhooks as Surfer triggers.
+5. GitHub PR creation/update and PR context reads require the selected run repository. Surfer
+   rejects GitHub operations when `repo` differs from `selected_repo`, before any GitHub API call.
 
 ### Runtime contract
 

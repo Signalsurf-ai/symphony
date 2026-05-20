@@ -536,6 +536,7 @@ defmodule SymphonyElixir.SurferPlatformsTest do
              GitHub.PullRequest.create_or_update(
                %{
                  repo: "acme/web",
+                 selected_repo: "acme/web",
                  head: "surfer/fix-routing",
                  base: "main",
                  title: "Fix routing",
@@ -566,6 +567,7 @@ defmodule SymphonyElixir.SurferPlatformsTest do
              GitHub.PullRequest.create_or_update(
                %{
                  repo: "acme/web",
+                 selected_repo: "acme/web",
                  head: "surfer/new",
                  title: "Implement Surfer",
                  body: "Surfer run surf_run_2",
@@ -590,6 +592,7 @@ defmodule SymphonyElixir.SurferPlatformsTest do
              GitHub.PullRequest.create_or_update(
                %{
                  repo: "acme/web",
+                 selected_repo: "acme/web",
                  head: "surfer/leak",
                  title: "Fix leak",
                  body: "Surfer run surf_run_3",
@@ -603,6 +606,55 @@ defmodule SymphonyElixir.SurferPlatformsTest do
     refute inspect(error_body) =~ "github-secret"
     refute inspect(error_body) =~ "github-api-key"
     refute inspect(error_body) =~ "raw-token"
+  end
+
+  test "GitHub pull request helper rejects writes outside the selected run repository before API calls" do
+    api_fun = fn _method, _path, _body, _token ->
+      flunk("GitHub API should not be called for a repo outside the selected run repository")
+    end
+
+    assert {:error, {:github_repo_outside_selected_run_repository, %{requested: "acme/api", selected: "acme/web"}}} =
+             GitHub.PullRequest.create_or_update(
+               %{
+                 repo: "acme/api",
+                 selected_repo: "acme/web",
+                 head: "surfer/fix-routing",
+                 title: "Fix routing",
+                 body: "Surfer run surf_run_4",
+                 token: "github-token"
+               },
+               api_fun: api_fun
+             )
+  end
+
+  test "GitHub pull request helper requires the selected run repository for writes" do
+    api_fun = fn _method, _path, _body, _token ->
+      flunk("GitHub API should not be called without selected run repository context")
+    end
+
+    assert {:error, :missing_selected_github_repo} =
+             GitHub.PullRequest.create_or_update(
+               %{
+                 repo: "acme/web",
+                 head: "surfer/fix-routing",
+                 title: "Fix routing",
+                 body: "Surfer run surf_run_5",
+                 token: "github-token"
+               },
+               api_fun: api_fun
+             )
+  end
+
+  test "GitHub pull request helper rejects PR context outside the selected run repository before API calls" do
+    api_fun = fn _method, _path, _body, _token ->
+      flunk("GitHub API should not be called for PR context outside the selected run repository")
+    end
+
+    assert {:error, {:github_repo_outside_selected_run_repository, %{requested: "acme/api", selected: "acme/web"}}} =
+             GitHub.PullRequest.review_context(
+               %{repo: "acme/api", selected_repo: "acme/web", number: 42, token: "github-token"},
+               api_fun: api_fun
+             )
   end
 
   test "GitHub pull request helper reads PR review context with provenance" do
@@ -656,7 +708,7 @@ defmodule SymphonyElixir.SurferPlatformsTest do
 
     assert {:ok, context} =
              GitHub.PullRequest.review_context(
-               %{repo: "acme/web", number: 42, token: "github-token"},
+               %{repo: "acme/web", selected_repo: "acme/web", number: 42, token: "github-token"},
                api_fun: api_fun
              )
 

@@ -82,6 +82,7 @@ defmodule SymphonyElixir.Surfer.GitHub.PullRequest do
 
   defp normalize_input(attrs) do
     with {:ok, owner, repo} <- parse_repo(required(attrs, :repo)),
+         :ok <- validate_selected_repo(attrs, owner, repo),
          {:ok, token} <- present(required(attrs, :token), :missing_github_token),
          {:ok, head} <- present(required(attrs, :head), :missing_github_head),
          {:ok, base} <- present(Map.get(attrs, :base) || Map.get(attrs, "base") || "main", :missing_github_base),
@@ -93,11 +94,31 @@ defmodule SymphonyElixir.Surfer.GitHub.PullRequest do
 
   defp normalize_review_context_input(attrs) do
     with {:ok, owner, repo} <- parse_repo(required(attrs, :repo)),
+         :ok <- validate_selected_repo(attrs, owner, repo),
          {:ok, token} <- present(required(attrs, :token), :missing_github_token),
          {:ok, number} <- pr_number(attrs) do
       {:ok, %{owner: owner, repo: repo, token: token, number: number}}
     end
   end
+
+  defp validate_selected_repo(attrs, owner, repo) do
+    requested = "#{owner}/#{repo}"
+
+    with {:ok, selected_owner, selected_repo} <- parse_selected_repo(selected_repo(attrs)) do
+      selected = "#{selected_owner}/#{selected_repo}"
+
+      if requested == selected do
+        :ok
+      else
+        {:error, {:github_repo_outside_selected_run_repository, %{requested: requested, selected: selected}}}
+      end
+    end
+  end
+
+  defp selected_repo(attrs), do: required(attrs, :selected_repo) || required(attrs, :selected_repository)
+
+  defp parse_selected_repo(nil), do: {:error, :missing_selected_github_repo}
+  defp parse_selected_repo(repo), do: parse_repo(repo)
 
   defp pr_number(attrs) do
     attrs
