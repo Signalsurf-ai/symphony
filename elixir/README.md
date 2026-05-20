@@ -372,6 +372,20 @@ startup with `CODEX_HOME` set from `surfer.codex.home`. A failed health check pa
 through the runtime pause control instead of silently sending work into an unauthenticated Codex
 backend.
 
+### Dependency contingencies
+
+- Linear Agent APIs are Developer Preview. If `AgentSessionEvent` payload shape changes or agent
+  activity writes fail live smoke, pause Surfer and alert the operator. Use the legacy Linear
+  project poller only as a separate temporary Symphony workflow with Surfer platform ingress
+  disabled.
+- The operator OpenAI Pro OAuth session is Surfer v0.1's transitional execution-capacity choice. If
+  the session expires, headless login breaks, account ownership changes, or the startup health check
+  fails, pause dispatch and re-authenticate or review the account. Do not silently fall back to an
+  unapproved account.
+- Codex app-server schema drift is handled by pinning `surfer.codex.app_server_version` and the
+  image Codex package version. Block release or Codex upgrades until parser fixtures and live smoke
+  pass when the JSON event schema or CLI behavior changes.
+
 ```bash
 docker compose -f docker-compose.surfer.yml run --rm --entrypoint codex surfer login
 ```

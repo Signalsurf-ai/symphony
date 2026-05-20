@@ -778,6 +778,16 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert readme =~ ~r/public reverse proxy must expose\s+only webhook paths/
   end
 
+  test "Surfer hosting docs cover PRD dependency contingencies" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "Linear Agent APIs are Developer Preview"
+    assert readme =~ "operator OpenAI Pro OAuth"
+    assert readme =~ "Codex app-server schema drift"
+    assert readme =~ "pause dispatch"
+    assert readme =~ "Block release or Codex upgrades"
+  end
+
   test "Surfer docs list unsupported Linear-native features and GitHub ingress non-support" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 
