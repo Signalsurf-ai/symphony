@@ -143,8 +143,9 @@ defmodule SymphonyElixir.Config do
   end
 
   defp validate_surfer_platforms(platforms) do
-    with :ok <- validate_surfer_platform_secrets(platforms) do
-      validate_surfer_discord_allowlists(platforms.discord)
+    with :ok <- validate_surfer_platform_secrets(platforms),
+         :ok <- validate_surfer_discord_allowlists(platforms.discord) do
+      validate_surfer_linear_settings_for_discord(platforms)
     end
   end
 
@@ -176,6 +177,16 @@ defmodule SymphonyElixir.Config do
   end
 
   defp validate_surfer_discord_allowlists(_discord), do: :ok
+
+  defp validate_surfer_linear_settings_for_discord(%{discord: %{enabled: true}, linear: %{enabled: true} = linear}) do
+    if blank?(linear.team_id) do
+      {:error, {:missing_surfer_platform_setting, :linear, :team_id}}
+    else
+      :ok
+    end
+  end
+
+  defp validate_surfer_linear_settings_for_discord(_platforms), do: :ok
 
   defp validate_surfer_storage(surfer) do
     if surfer_platform_enabled?(surfer.platforms) and blank?(surfer.storage.sqlite_path) do

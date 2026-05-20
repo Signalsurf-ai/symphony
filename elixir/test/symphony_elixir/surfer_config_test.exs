@@ -641,6 +641,41 @@ defmodule SymphonyElixir.SurferConfigTest do
              Config.validate!()
   end
 
+  test "fails closed when Discord-to-Linear issue creation lacks Linear team id" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: /tmp/surfer.sqlite3
+        platforms:
+          discord:
+            enabled: true
+            public_key: discord-public-key
+            message_ingress_secret: discord-message-secret
+            bot_token: discord-bot-token
+            allowed_guilds:
+              - guild-1
+            allowed_channels:
+              - channel-1
+          linear:
+            enabled: true
+            webhook_secret: linear-secret
+            access_token: linear-token
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert {:error, {:missing_surfer_platform_setting, :linear, :team_id}} =
+             Config.validate!()
+  end
+
   test "fails closed when GitHub App auth is configured for Surfer v0.1" do
     File.write!(
       Workflow.workflow_file_path(),
