@@ -1075,7 +1075,11 @@ defmodule SymphonyElixir.Config.Schema do
       value when is_binary(value) -> resolve_env_value(value, nil)
       value -> value
     end)
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.map(fn
+      value when is_binary(value) -> String.trim(value)
+      _value -> nil
+    end)
+    |> Enum.reject(&(&1 in [nil, ""]))
   end
 
   defp resolve_env_list(_values), do: []
