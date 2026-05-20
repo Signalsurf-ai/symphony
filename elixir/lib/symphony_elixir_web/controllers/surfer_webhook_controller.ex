@@ -382,36 +382,49 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
         raw_message = put_discord_interaction_retry_deadline(params, received_at_ms)
         claim_and_dispatch_discord_interaction(conn, request, raw_message, discord)
 
-      {:error, {:unauthorized_guild, _guild_id}} ->
-        error_response(conn, 403, "unauthorized_guild", "Discord guild is not allowed")
-
-      {:error, {:unauthorized_channel, _channel_id}} ->
-        error_response(conn, 403, "unauthorized_channel", "Discord channel is not allowed")
-
-      {:error, :missing_discord_interaction_id} ->
-        error_response(conn, 400, "missing_discord_interaction_id", "Discord interaction id is required")
-
-      {:error, :missing_discord_message_id} ->
-        error_response(conn, 400, "missing_discord_message_id", "Discord message id is required")
-
-      {:error, :missing_discord_guild_id} ->
-        error_response(conn, 400, "missing_discord_guild_id", "Discord guild id is required")
-
-      {:error, :missing_discord_channel_id} ->
-        error_response(conn, 400, "missing_discord_channel_id", "Discord channel id is required")
-
-      {:error, :missing_discord_lifecycle_run_id} ->
-        error_response(conn, 400, "missing_discord_lifecycle_run_id", "Discord lifecycle run id is required")
-
-      {:error, :missing_discord_prompt} ->
-        error_response(conn, 400, "missing_discord_prompt", "Discord command prompt is required")
-
-      {:error, {:unsupported_discord_subcommand, subcommand}} ->
-        error_response(conn, 400, "unsupported_discord_subcommand", "Unsupported Discord Surfer subcommand: #{safe_inspect(subcommand)}")
-
       {:error, reason} ->
-        error_response(conn, 400, "unsupported_discord_interaction", safe_inspect(reason))
+        discord_interaction_error_response(conn, reason)
     end
+  end
+
+  defp discord_interaction_error_response(conn, {:unauthorized_guild, _guild_id}) do
+    error_response(conn, 403, "unauthorized_guild", "Discord guild is not allowed")
+  end
+
+  defp discord_interaction_error_response(conn, {:unauthorized_channel, _channel_id}) do
+    error_response(conn, 403, "unauthorized_channel", "Discord channel is not allowed")
+  end
+
+  defp discord_interaction_error_response(conn, :missing_discord_interaction_id) do
+    error_response(conn, 400, "missing_discord_interaction_id", "Discord interaction id is required")
+  end
+
+  defp discord_interaction_error_response(conn, :missing_discord_message_id) do
+    error_response(conn, 400, "missing_discord_message_id", "Discord message id is required")
+  end
+
+  defp discord_interaction_error_response(conn, :missing_discord_guild_id) do
+    error_response(conn, 400, "missing_discord_guild_id", "Discord guild id is required")
+  end
+
+  defp discord_interaction_error_response(conn, :missing_discord_channel_id) do
+    error_response(conn, 400, "missing_discord_channel_id", "Discord channel id is required")
+  end
+
+  defp discord_interaction_error_response(conn, :missing_discord_lifecycle_run_id) do
+    error_response(conn, 400, "missing_discord_lifecycle_run_id", "Discord lifecycle run id is required")
+  end
+
+  defp discord_interaction_error_response(conn, :missing_discord_prompt) do
+    error_response(conn, 400, "missing_discord_prompt", "Discord command prompt is required")
+  end
+
+  defp discord_interaction_error_response(conn, {:unsupported_discord_subcommand, subcommand}) do
+    error_response(conn, 400, "unsupported_discord_subcommand", "Unsupported Discord Surfer subcommand: #{safe_inspect(subcommand)}")
+  end
+
+  defp discord_interaction_error_response(conn, reason) do
+    error_response(conn, 400, "unsupported_discord_interaction", safe_inspect(reason))
   end
 
   defp claim_and_dispatch_discord_interaction(conn, request, raw_message, discord) do
@@ -1492,6 +1505,8 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
       false
     end
   end
+
+  defp discord_rate_limited?(%RunRequest{request: %{mode: :lifecycle_control}}, _discord), do: false
 
   defp discord_rate_limited?(%RunRequest{} = request, discord) do
     discord_user_cooldown_limited?(request, discord) or

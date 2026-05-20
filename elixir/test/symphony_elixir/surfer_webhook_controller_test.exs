@@ -3669,6 +3669,111 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert_eventually_run_status(db_path, command_run_id, "completed")
   end
 
+  test "Discord lifecycle controls bypass user cooldowns" do
+    {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
+
+    on_exit(fn -> restore_env("DISCORD_PUBLIC_KEY", previous_public_key) end)
+    System.put_env("DISCORD_PUBLIC_KEY", Base.encode16(public_key, case: :lower))
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-lifecycle-cooldown-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            public_key: $DISCORD_PUBLIC_KEY
+            per_user_cooldown_seconds: 30
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert :ok = RunLedger.initialize(db_path)
+    target_run_id = "surf_run_cancel_cooldown_target"
+
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-cancel-cooldown-target",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer implement routing"
+             })
+
+    request = %{request | run_id: target_run_id}
+    assert {:ok, %{status: :claimed}} = RunLedger.claim_run(db_path, "cooldown-target-key", request, platform: :discord)
+    assert :ok = RunLedger.update_status(db_path, target_run_id, "running")
+
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:discord_dispatch, request.run_id})
+      :ok
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_response_fun, fn _application_id, _token, body ->
+      send(parent, {:interaction_response, body})
+      :ok
+    end)
+
+    ask_body =
+      Jason.encode!(%{
+        id: "interaction-cooldown-before-cancel",
+        application_id: "app-1",
+        token: "ask-token",
+        type: 2,
+        guild_id: "guild-1",
+        channel_id: "channel-1",
+        member: %{user: %{id: "lifecycle-cooldown-user"}},
+        data: %{name: "surfer", options: [%{name: "ask", type: 1, options: [%{name: "prompt", type: 3, value: "question before cancel"}]}]}
+      })
+
+    ask_conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_signature_headers(ask_body, private_key)
+      |> post("/webhooks/discord/interactions", ask_body)
+
+    assert json_response(ask_conn, 200)["type"] == 5
+    assert_receive {:discord_dispatch, _ask_run_id}
+
+    cancel_body =
+      Jason.encode!(%{
+        id: "interaction-cancel-bypasses-cooldown",
+        application_id: "app-1",
+        token: "cancel-token",
+        type: 2,
+        guild_id: "guild-1",
+        channel_id: "channel-1",
+        member: %{user: %{id: "lifecycle-cooldown-user"}},
+        data: %{name: "surfer", options: [%{name: "cancel", type: 1, options: [%{name: "run_id", type: 3, value: target_run_id}]}]}
+      })
+
+    cancel_conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_signature_headers(cancel_body, private_key)
+      |> post("/webhooks/discord/interactions", cancel_body)
+
+    assert json_response(cancel_conn, 200)["type"] == 5
+    assert_interaction_response_contains("cancelled")
+    assert {:ok, %{"status" => "cancelled"}} = RunLedger.get_run(db_path, target_run_id)
+    assert {:ok, command_run_id} = RunLedger.lookup_idempotency_key(db_path, "discord_interaction:interaction-cancel-bypasses-cooldown:lifecycle_control")
+    assert_eventually_run_status(db_path, command_run_id, "completed")
+  end
+
   test "Discord retry command creates a linked retry run without dispatching new work" do
     {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
     previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
