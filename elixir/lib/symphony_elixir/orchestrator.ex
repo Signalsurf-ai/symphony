@@ -277,7 +277,7 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       {:error, {:unsupported_tracker_kind, kind}} ->
-        Logger.error("Unsupported tracker kind in WORKFLOW.md: #{inspect(kind)}")
+        Logger.error("Unsupported tracker kind in WORKFLOW.md: #{safe_inspect(kind)}")
 
         state
 
@@ -286,7 +286,7 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       {:error, {:missing_workflow_file, path, reason}} ->
-        Logger.error("Missing WORKFLOW.md at #{path}: #{inspect(reason)}")
+        Logger.error("Missing WORKFLOW.md at #{path}: #{safe_inspect(reason)}")
         state
 
       {:error, :workflow_front_matter_not_a_map} ->
@@ -294,11 +294,11 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       {:error, {:workflow_parse_error, reason}} ->
-        Logger.error("Failed to parse WORKFLOW.md: #{inspect(reason)}")
+        Logger.error("Failed to parse WORKFLOW.md: #{safe_inspect(reason)}")
         state
 
       {:error, reason} ->
-        Logger.error("Failed to fetch from Linear: #{inspect(reason)}")
+        Logger.error("Failed to fetch from Linear: #{safe_inspect(reason)}")
         state
 
       false ->
@@ -324,7 +324,7 @@ defmodule SymphonyElixir.Orchestrator do
           |> reconcile_missing_running_issue_ids(running_ids, issues)
 
         {:error, reason} ->
-          Logger.debug("Failed to refresh running issue states: #{inspect(reason)}; keeping active workers")
+          Logger.debug("Failed to refresh running issue states: #{safe_inspect(reason)}; keeping active workers")
 
           state
       end
@@ -1007,7 +1007,7 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       {:error, reason} ->
-        Logger.warning("Skipping dispatch; issue refresh failed for #{issue_context(issue)}: #{inspect(reason)}")
+        Logger.warning("Skipping dispatch; issue refresh failed for #{issue_context(issue)}: #{safe_inspect(reason)}")
         state
     end
   end
@@ -1066,7 +1066,7 @@ defmodule SymphonyElixir.Orchestrator do
         }
 
       {:error, reason} ->
-        Logger.error("Unable to spawn agent for #{issue_context(issue)}: #{inspect(reason)}")
+        Logger.error("Unable to spawn agent for #{issue_context(issue)}: #{safe_inspect(reason)}")
         next_attempt = if is_integer(attempt), do: attempt + 1, else: nil
 
         schedule_issue_retry(state, issue.id, next_attempt, %{
@@ -1172,7 +1172,7 @@ defmodule SymphonyElixir.Orchestrator do
         |> handle_retry_issue_lookup(state, issue_id, attempt, metadata)
 
       {:error, reason} ->
-        Logger.warning("Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{inspect(reason)}")
+        Logger.warning("Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{safe_inspect(reason)}")
 
         {:noreply,
          schedule_issue_retry(
@@ -1236,7 +1236,7 @@ defmodule SymphonyElixir.Orchestrator do
         end)
 
       {:error, reason} ->
-        Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
+        Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{safe_inspect(reason)}")
     end
   end
 

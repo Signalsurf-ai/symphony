@@ -1,6 +1,15 @@
 defmodule SymphonyElixir.CoreTest do
   use SymphonyElixir.TestSupport
 
+  defmodule RedactingLinearClient do
+    def fetch_candidate_issues do
+      {:error, {:linear_down, "Authorization: Bearer poll-secret access_token=poll-secret"}}
+    end
+
+    def fetch_issues_by_states(_states), do: {:ok, []}
+    def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
+  end
+
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
@@ -147,6 +156,33 @@ defmodule SymphonyElixir.CoreTest do
     assert refreshed_state.polling_enabled == false
     assert refreshed_state.next_poll_due_at_ms == nil
     assert refreshed_state.tick_timer_ref == nil
+  end
+
+  test "legacy Linear polling logs redact token-shaped fetch failures" do
+    previous_linear_client_module = Application.get_env(:symphony_elixir, :linear_client_module)
+
+    on_exit(fn ->
+      if is_nil(previous_linear_client_module) do
+        Application.delete_env(:symphony_elixir, :linear_client_module)
+      else
+        Application.put_env(:symphony_elixir, :linear_client_module, previous_linear_client_module)
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :linear_client_module, RedactingLinearClient)
+    write_workflow_file!(Workflow.workflow_file_path(), polling_enabled: true)
+
+    assert {:ok, state} = Orchestrator.init([])
+
+    log =
+      capture_log([level: :error], fn ->
+        assert {:noreply, _state} = Orchestrator.handle_info(:run_poll_cycle, state)
+      end)
+
+    assert log =~ "Failed to fetch from Linear"
+    assert log =~ "Authorization: Bearer [REDACTED]"
+    assert log =~ "access_token=[REDACTED]"
+    refute log =~ "poll-secret"
   end
 
   test "linear api token resolves from LINEAR_API_KEY env var" do
