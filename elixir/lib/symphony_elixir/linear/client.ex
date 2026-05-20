@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   require Logger
   alias SymphonyElixir.{Config, Linear.Issue}
+  alias SymphonyElixir.Surfer.SecretRedactor
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
@@ -179,7 +180,7 @@ defmodule SymphonyElixir.Linear.Client do
         {:error, {:linear_api_status, response.status}}
 
       {:error, reason} ->
-        Logger.error("Linear GraphQL request failed: #{inspect(reason)}")
+        Logger.error("Linear GraphQL request failed: #{safe_inspect(reason)}")
         {:error, {:linear_api_request, reason}}
     end
   end
@@ -360,6 +361,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp summarize_error_body(body) when is_binary(body) do
     body
+    |> SecretRedactor.redact_text()
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
     |> truncate_error_body()
@@ -368,8 +370,15 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp summarize_error_body(body) do
     body
-    |> inspect(limit: 20, printable_limit: @max_error_body_log_bytes)
+    |> safe_inspect(limit: 20, printable_limit: @max_error_body_log_bytes)
     |> truncate_error_body()
+  end
+
+  defp safe_inspect(term, opts \\ []) do
+    term
+    |> SecretRedactor.redact()
+    |> inspect(opts)
+    |> SecretRedactor.redact_text()
   end
 
   defp truncate_error_body(body) when is_binary(body) do

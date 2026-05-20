@@ -486,6 +486,48 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert log =~ "Variable \\\"$ids\\\" got invalid value"
   end
 
+  test "linear client redacts secret-shaped graphql error logs" do
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, {:linear_api_status, 400}} =
+                 Client.graphql(
+                   "query Viewer { viewer { id } }",
+                   %{},
+                   request_fun: fn _payload, _headers ->
+                     {:ok,
+                      %{
+                        status: 400,
+                        body: %{
+                          "errors" => [
+                            %{
+                              "message" => "access_token=linear-secret-token",
+                              "authorization" => "Bearer linear-secret-token"
+                            }
+                          ]
+                        }
+                      }}
+                   end
+                 )
+
+        assert {:error, {:linear_api_request, _reason}} =
+                 Client.graphql(
+                   "query Viewer { viewer { id } }",
+                   %{},
+                   request_fun: fn _payload, _headers ->
+                     {:error,
+                      %{
+                        "authorization" => "Bearer linear-secret-token",
+                        "reason" => "webhook_secret=linear-secret-token"
+                      }}
+                   end
+                 )
+      end)
+
+    assert log =~ "[REDACTED]"
+    refute log =~ "linear-secret-token"
+    refute log =~ "webhook_secret=linear-secret-token"
+  end
+
   test "orchestrator sorts dispatch by priority then oldest created_at" do
     issue_same_priority_older = %Issue{
       id: "issue-old-high",
