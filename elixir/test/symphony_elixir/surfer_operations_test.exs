@@ -223,7 +223,7 @@ defmodule SymphonyElixir.SurferOperationsTest do
                actor: "surfer"
              )
 
-    assert {:ok, %{"status" => "awaiting_review", "github_pr_number" => "42"}} =
+    assert {:ok, %{"status" => "awaiting_review", "github_repo" => "acme/web", "github_pr_number" => "42"}} =
              RunLedger.get_run(db_path, request.run_id)
 
     assert {:ok, links} = RunLedger.list_links(db_path, request.run_id)
@@ -237,7 +237,8 @@ defmodule SymphonyElixir.SurferOperationsTest do
 
     assert Enum.any?(events, fn event ->
              event["event_type"] == "github_pr_opened" and event["platform"] == "github" and
-               event["external_id"] == "42" and event["payload_json"] =~ "Fix routing"
+               event["external_id"] == "42" and event["payload_json"] =~ "Fix routing" and
+               event["payload_json"] =~ "acme/web"
            end)
   end
 

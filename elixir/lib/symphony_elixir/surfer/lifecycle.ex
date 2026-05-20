@@ -233,6 +233,7 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
              external_id: pr_context.external_id,
              payload: %{
                actor: Keyword.get(opts, :actor, "surfer"),
+               repo: pr_context.repo,
                title: pr_context.title,
                state: pr_context.state,
                url: pr_context.url
@@ -244,6 +245,7 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
       RunLedger.update_status(db_path, run_id, "awaiting_review",
         reason: Keyword.get(opts, :reason, "GitHub PR opened"),
         actor: Keyword.get(opts, :actor, "surfer"),
+        github_repo: pr_context.repo,
         github_pr_number: pr_context.external_id,
         external_write_status: external_write_status(linear: linear_write_status)
       )
@@ -399,9 +401,12 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
   defp normalize_github_pr(pr) do
     with {:ok, number} <- normalize_pr_number(value(pr, :number)),
          {:ok, url} <- present(value(pr, :url), :missing_github_pr_url) do
+      repo = value(pr, :repo) || repo_from_pr_url(url)
+
       {:ok,
        %{
          external_id: Integer.to_string(number),
+         repo: repo,
          url: url,
          title: value(pr, :title),
          state: value(pr, :state)
@@ -425,6 +430,15 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
   defp present(_value, error), do: {:error, error}
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, to_string(key))
+
+  defp repo_from_pr_url("https://github.com/" <> rest) do
+    case String.split(rest, "/", parts: 4) do
+      [owner, repo, "pull", _number] when owner != "" and repo != "" -> "#{owner}/#{repo}"
+      _ -> nil
+    end
+  end
+
+  defp repo_from_pr_url(_url), do: nil
 
   defp requeue_pending_write(db_path, pending_write, retry_fun, actor, acc) do
     started_at = System.monotonic_time(:millisecond)

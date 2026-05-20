@@ -890,6 +890,7 @@ defmodule SymphonyElixir.Surfer.RunLedger do
           completed_at = COALESCE(?, completed_at),
           error_code = ?,
           error_message = ?,
+          github_repo = COALESCE(?, github_repo),
           github_pr_number = COALESCE(?, github_pr_number)
       WHERE run_id = ?;
       """,
@@ -899,6 +900,7 @@ defmodule SymphonyElixir.Surfer.RunLedger do
         completed_at,
         Keyword.get(opts, :error_code) |> redacted_optional(),
         Keyword.get(opts, :error_message) |> redacted_optional(),
+        Keyword.get(opts, :github_repo) |> format_optional(),
         Keyword.get(opts, :github_pr_number) |> format_optional(),
         run_id
       ]
