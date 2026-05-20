@@ -121,6 +121,60 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert log =~ "run_id=#{request.run_id}"
   end
 
+  test "orchestrator redacts abnormal runner exit reasons before reporting failure" do
+    parent = self()
+    previous_fun = Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun)
+    on_exit(fn -> restore_app_env(:surfer_linear_session_activity_fun, previous_fun) end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_session_activity_fun, fn session_id, type, body ->
+      send(parent, {:linear_activity, session_id, type, body})
+      :ok
+    end)
+
+    orchestrator_name = Module.concat(__MODULE__, :RunnerFailureRedactionOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+    end)
+
+    assert {:ok, request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
+               "action" => "created",
+               "agentSession" => %{
+                 "id" => "session-runner-failure-redaction",
+                 "issue" => %{
+                   "id" => "issue-runner-failure-redaction",
+                   "identifier" => "ENG-REDACT",
+                   "title" => "Redact runner failure",
+                   "state" => %{"name" => "Todo"}
+                 }
+               }
+             })
+
+    runner_fun = fn _issue, _recipient, _opts ->
+      exit({:runner_failed, "Authorization: Bearer runner-secret api_key=runner-api-key"})
+    end
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        assert :ok = Orchestrator.dispatch_run(orchestrator_name, request, runner_fun: runner_fun)
+        assert_receive {:linear_activity, "session-runner-failure-redaction", :error, body}, 1_000
+        assert body =~ "Authorization: Bearer [REDACTED]"
+        assert body =~ "api_key=[REDACTED]"
+        refute body =~ "runner-secret"
+        refute body =~ "runner-api-key"
+
+        assert_eventually_retry_error_redacted(orchestrator_name)
+      end)
+
+    assert log =~ "Authorization: Bearer [REDACTED]"
+    assert log =~ "api_key=[REDACTED]"
+    refute log =~ "runner-secret"
+    refute log =~ "runner-api-key"
+  end
+
   test "orchestrator retrieves scoped Company Brain refs before rendering Surfer context" do
     parent = self()
     previous_fetch_fun = Application.get_env(:symphony_elixir, :surfer_company_brain_fetch_fun)
@@ -1330,7 +1384,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     Application.put_env(:symphony_elixir, :surfer_linear_session_activity_fun, fn session_id, type, body ->
       send(parent, {:linear_activity_attempt, session_id, type, body})
-      {:error, :linear_down}
+      {:error, {:linear_down, "Authorization: Bearer linear-secret api_key=linear-api-key"}}
     end)
 
     orchestrator_name = Module.concat(__MODULE__, :LinearOutboxOrchestrator)
@@ -1377,7 +1431,10 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert failure_metadata.run_id == request.run_id
     assert failure_metadata.platform == "linear"
     assert failure_metadata.external_id == "session-1:response"
-    assert failure_metadata.reason == ":linear_down"
+    assert failure_metadata.reason =~ "Authorization: Bearer [REDACTED]"
+    assert failure_metadata.reason =~ "api_key=[REDACTED]"
+    refute failure_metadata.reason =~ "linear-secret"
+    refute failure_metadata.reason =~ "linear-api-key"
   end
 
   test "orchestrator records pending Discord writes when completion notification fails" do
@@ -1617,6 +1674,27 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
   defp assert_eventually_event(db_path, run_id, event_type, 0) do
     assert {:ok, events} = RunLedger.list_events(db_path, run_id)
     assert Enum.any?(events, &(&1["event_type"] == event_type))
+  end
+
+  defp assert_eventually_retry_error_redacted(orchestrator_name, attempts \\ 100)
+
+  defp assert_eventually_retry_error_redacted(orchestrator_name, attempts) when attempts > 0 do
+    case Orchestrator.snapshot(orchestrator_name, 1_000) do
+      %{retrying: [%{error: error} | _]} when is_binary(error) ->
+        assert error =~ "Authorization: Bearer [REDACTED]"
+        assert error =~ "api_key=[REDACTED]"
+        refute error =~ "runner-secret"
+        refute error =~ "runner-api-key"
+
+      _snapshot ->
+        Process.sleep(25)
+        assert_eventually_retry_error_redacted(orchestrator_name, attempts - 1)
+    end
+  end
+
+  defp assert_eventually_retry_error_redacted(orchestrator_name, 0) do
+    assert %{retrying: [%{error: error} | _]} = Orchestrator.snapshot(orchestrator_name, 1_000)
+    assert error =~ "Authorization: Bearer [REDACTED]"
   end
 
   defp status_transition_payload(events, to_status) do

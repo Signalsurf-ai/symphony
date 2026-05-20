@@ -184,6 +184,17 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
+  def handle_info({:direct_dispatch_failed, issue_id, pid, reason}, state) do
+    case Map.get(state.running, issue_id) do
+      %{pid: ^pid} = running_entry ->
+        state = complete_running_entry(state, issue_id, running_entry, reason, flush_monitor?: true)
+        {:noreply, state}
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, %{running: running} = state)
       when is_binary(issue_id) and is_map(runtime_info) do
     case Map.get(running, issue_id) do
@@ -580,14 +591,15 @@ defmodule SymphonyElixir.Orchestrator do
 
         :error ->
           post_surfer_completion(running_entry, reason)
+          safe_reason = safe_inspect(reason)
 
-          Logger.warning("Agent task exited for issue_id=#{issue_id}#{run_context} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+          Logger.warning("Agent task exited for issue_id=#{issue_id}#{run_context} session_id=#{session_id} reason=#{safe_reason}; scheduling retry")
 
           next_attempt = next_retry_attempt_from_running(running_entry)
 
           schedule_issue_retry(state, issue_id, next_attempt, %{
             identifier: running_entry.identifier,
-            error: "agent exited: #{inspect(reason)}",
+            error: "agent exited: #{safe_reason}",
             worker_host: Map.get(running_entry, :worker_host),
             workspace_path: Map.get(running_entry, :workspace_path),
             run_id: running_entry_run_id(running_entry)
@@ -596,7 +608,7 @@ defmodule SymphonyElixir.Orchestrator do
 
     emit_codex_run_duration(running_entry)
     emit_runtime_gauges(state)
-    Logger.info("Agent task finished for issue_id=#{issue_id}#{run_context} session_id=#{session_id} reason=#{inspect(reason)}")
+    Logger.info("Agent task finished for issue_id=#{issue_id}#{run_context} session_id=#{session_id} reason=#{safe_inspect(reason)}")
 
     notify_dashboard()
     state
@@ -630,14 +642,15 @@ defmodule SymphonyElixir.Orchestrator do
         )
 
       _ ->
-        body = final_status_body("Surfer run #{run_id} failed: #{inspect(reason)}", surfer_context)
+        safe_reason = safe_inspect(reason)
+        body = final_status_body("Surfer run #{run_id} failed: #{safe_reason}", surfer_context)
         linear_status = post_linear_session_activity(running_entry, session_id, :error, body)
         discord_status = post_discord_status(running_entry, surfer_context, body)
 
         record_surfer_status(running_entry, "failed",
           reason: "runner failed",
           actor: "surfer",
-          error_message: inspect(reason),
+          error_message: safe_reason,
           external_write_status: external_write_status(linear: linear_status, discord: discord_status)
         )
     end
@@ -1658,14 +1671,7 @@ defmodule SymphonyElixir.Orchestrator do
     case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
            receive do
              {:run_direct_dispatch, ^start_token} ->
-               result =
-                 runner_fun.(issue, recipient,
-                   surfer_context: surfer_context,
-                   workspace_identifier: surfer_workspace_identifier(request)
-                 )
-
-               send(recipient, {:direct_dispatch_completed, issue.id, self()})
-               result
+               run_and_report_direct_dispatch(runner_fun, issue, recipient, request, surfer_context)
            end
          end) do
       {:ok, pid} ->
@@ -1714,6 +1720,35 @@ defmodule SymphonyElixir.Orchestrator do
 
         {:reply, {:error, reason}, state}
     end
+  end
+
+  defp run_and_report_direct_dispatch(runner_fun, issue, recipient, request, surfer_context) do
+    case run_direct_dispatch_runner(runner_fun, issue, recipient, request, surfer_context) do
+      {:ok, result} ->
+        send(recipient, {:direct_dispatch_completed, issue.id, self()})
+        result
+
+      {:error, reason} ->
+        send(recipient, {:direct_dispatch_failed, issue.id, self(), reason})
+        :ok
+    end
+  end
+
+  defp run_direct_dispatch_runner(runner_fun, issue, recipient, request, surfer_context) do
+    result =
+      try do
+        {:ok,
+         runner_fun.(issue, recipient,
+           surfer_context: surfer_context,
+           workspace_identifier: surfer_workspace_identifier(request)
+         )}
+      rescue
+        exception -> {:error, {exception.__struct__, Exception.message(exception)}}
+      catch
+        kind, reason -> {:error, {kind, reason}}
+      end
+
+    result
   end
 
   defp attach_company_brain_refs(%RunRequest{} = request) do
