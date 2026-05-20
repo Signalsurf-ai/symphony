@@ -398,9 +398,9 @@ Discord:
    ```
 
    The payload from `SymphonyElixir.Surfer.Discord.Commands.application_command/0` includes
-   `ask`, `issue`, `run`, `cancel`, and `retry` subcommands.
+   `ask`, `issue`, `run`, `cancel`, `retry`, and `takeover` subcommands.
    - `ask`, `issue`, and `run` use a string option named `prompt`.
-   - `cancel` and `retry` use a string option named `run_id`.
+   - `cancel`, `retry`, and `takeover` use a string option named `run_id`.
 7. Set `DISCORD_GUILD_ID` for command registration and `DISCORD_REPORT_CHANNEL_ID` for the
    default report/routing channel. Set `DISCORD_ALLOWED_GUILDS` and `DISCORD_ALLOWED_CHANNELS`
    to comma-separated allowlists for Discord ingress. If a gateway adapter or internal relay calls

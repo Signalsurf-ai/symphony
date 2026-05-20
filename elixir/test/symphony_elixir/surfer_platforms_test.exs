@@ -153,6 +153,16 @@ defmodule SymphonyElixir.SurferPlatformsTest do
            end)
   end
 
+  test "Discord setup docs list every registered Surfer subcommand" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+    [_prefix, discord_setup] = String.split(readme, "\nDiscord:\n", parts: 2)
+    [discord_setup, _suffix] = String.split(discord_setup, "\nGitHub:\n", parts: 2)
+
+    Discord.Commands.application_command().options
+    |> Enum.map(& &1.name)
+    |> Enum.each(fn name -> assert discord_setup =~ "`#{name}`" end)
+  end
+
   test "Discord lifecycle interactions require a run id" do
     interaction = %{
       "id" => "interaction-missing-run-id",
