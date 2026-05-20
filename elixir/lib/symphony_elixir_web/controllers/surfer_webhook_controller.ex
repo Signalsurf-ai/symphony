@@ -161,7 +161,8 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
              Discord.Ingress.normalize_message(params,
                allowed_guilds: discord.allowed_guilds,
                allowed_channels: discord.allowed_channels
-             ) do
+             ),
+           :ok <- require_secret(discord.enabled, discord.bot_token, :missing_discord_bot_token) do
         with {:ok, response} <- claim_run(request, :discord),
              :ok <- maybe_dispatch_discord(response, request, params, discord) do
           response =
@@ -196,6 +197,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
         {:error, :missing_raw_body} ->
           error_response(conn, 400, "missing_raw_body", "Raw request body is required for Discord message relay signature verification")
+
+        {:error, :missing_discord_bot_token} ->
+          error_response(conn, 503, "missing_discord_bot_token", "Discord bot token is required when Discord ingress is enabled")
 
         {:error, :missing_signature} ->
           record_signature_failure(:discord_message, :missing_signature)
@@ -422,13 +426,17 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   end
 
   defp handle_discord_interaction(conn, params, discord, received_at_ms) do
-    case Discord.Interaction.to_run_request(params,
-           allowed_guilds: discord.allowed_guilds,
-           allowed_channels: discord.allowed_channels
-         ) do
-      {:ok, request} ->
-        raw_message = put_discord_interaction_retry_deadline(params, received_at_ms)
-        claim_and_dispatch_discord_interaction(conn, request, raw_message, discord)
+    with {:ok, request} <-
+           Discord.Interaction.to_run_request(params,
+             allowed_guilds: discord.allowed_guilds,
+             allowed_channels: discord.allowed_channels
+           ),
+         :ok <- require_secret(discord.enabled, discord.bot_token, :missing_discord_bot_token) do
+      raw_message = put_discord_interaction_retry_deadline(params, received_at_ms)
+      claim_and_dispatch_discord_interaction(conn, request, raw_message, discord)
+    else
+      {:error, :missing_discord_bot_token} ->
+        error_response(conn, 503, "missing_discord_bot_token", "Discord bot token is required when Discord ingress is enabled")
 
       {:error, reason} ->
         discord_interaction_error_response(conn, reason)

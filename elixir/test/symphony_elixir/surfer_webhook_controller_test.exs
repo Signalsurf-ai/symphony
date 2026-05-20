@@ -1858,6 +1858,60 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute_receive {:unexpected_dispatch, _run_id}, 100
   end
 
+  test "Discord message ingress fails closed when enabled without bot token" do
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-message-missing-bot-token-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            message_ingress_secret: relay-secret
+            allowed_guilds:
+              - guild-1
+            allowed_channels:
+              - channel-1
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        "id" => "message-missing-bot-token",
+        "guild_id" => "guild-1",
+        "channel_id" => "channel-1",
+        "content" => "surfer question"
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_message_relay_signature_headers(body, "relay-secret")
+      |> post("/webhooks/discord/message", body)
+
+    assert json_response(conn, 503)["error"]["code"] == "missing_discord_bot_token"
+    assert {:error, :not_found} = RunLedger.lookup_idempotency_key(db_path, "discord_message:guild-1:channel-1:message-missing-bot-token:code_question")
+    refute_receive {:unexpected_dispatch, _run_id}, 100
+  end
+
   test "Discord webhook rejects messages from unconfigured channels" do
     File.write!(
       Workflow.workflow_file_path(),
@@ -1963,6 +2017,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
             enabled: true
             message_ingress_path: /internal/surfer/discord/message
             message_ingress_secret: relay-secret
+            bot_token: test-discord-bot-token
             allowed_guilds:
               - guild-1
             allowed_channels:
@@ -2115,6 +2170,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
             allowed_guilds:
               - guild-1
             allowed_channels:
@@ -2262,6 +2318,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
         repositories:
           - key: web
             repo: acme/web
@@ -2339,6 +2396,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
         repositories:
           - key: web
             repo: acme/web
@@ -2419,6 +2477,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
       ---
       Prompt
       """
@@ -2481,6 +2540,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
             enabled: true
             public_key: #{Base.encode16(current_public_key, case: :lower)}
             public_key_next: #{Base.encode16(next_public_key, case: :lower)}
+            bot_token: test-discord-bot-token
       ---
       Prompt
       """
@@ -3263,6 +3323,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
             per_channel_queued_limit: 3
       ---
       Prompt
@@ -3344,6 +3405,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
             per_user_daily_run_limit: 2
       ---
       Prompt
@@ -3428,6 +3490,65 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       |> post("/webhooks/discord/interactions", Jason.encode!(%{type: 1}))
 
     assert json_response(conn, 503)["error"]["code"] == "missing_discord_public_key"
+  end
+
+  test "Discord interaction webhook fails closed when enabled without bot token" do
+    {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
+    on_exit(fn -> restore_env("DISCORD_PUBLIC_KEY", previous_public_key) end)
+    System.put_env("DISCORD_PUBLIC_KEY", Base.encode16(public_key, case: :lower))
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-interaction-missing-bot-token-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            public_key: $DISCORD_PUBLIC_KEY
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        id: "interaction-missing-bot-token",
+        application_id: "app-1",
+        token: "missing-bot-token",
+        type: 2,
+        guild_id: "guild-1",
+        channel_id: "channel-1",
+        member: %{user: %{id: "user-1"}},
+        data: %{name: "surfer", options: [%{name: "ask", type: 1, options: [%{name: "prompt", type: 3, value: "where is routing handled?"}]}]}
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_signature_headers(body, private_key)
+      |> post("/webhooks/discord/interactions", body)
+
+    assert json_response(conn, 503)["error"]["code"] == "missing_discord_bot_token"
+    assert {:error, :not_found} = RunLedger.lookup_idempotency_key(db_path, "discord_interaction:interaction-missing-bot-token:code_question")
+    refute_receive {:unexpected_dispatch, _run_id}, 100
   end
 
   test "Discord lifecycle interaction without run id fails before claim or dispatch" do
@@ -3799,6 +3920,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             message_ingress_secret: relay-secret
+            bot_token: test-discord-bot-token
             allowed_guilds:
               - guild-1
           linear:
@@ -3874,6 +3996,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
             allowed_guilds:
               - guild-1
             allowed_channels:
@@ -3975,6 +4098,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
       ---
       Prompt
       """
@@ -4059,6 +4183,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
             per_user_cooldown_seconds: 30
       ---
       Prompt
@@ -4164,6 +4289,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
       ---
       Prompt
       """
@@ -4252,6 +4378,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
       ---
       Prompt
       """
@@ -5003,6 +5130,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
             allowed_guilds:
               - guild-1
             allowed_channels:
