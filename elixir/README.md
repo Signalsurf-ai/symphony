@@ -197,7 +197,10 @@ SQLite ledger is local operational state for run claims, events, links, pending 
    example `ssh -L 4000:127.0.0.1:4000 surfer@<vps>`.
 4. Copy `.env.surfer.example` to `.env.surfer`, fill the real Linear, Discord, GitHub, repository,
    public URL, and mounted Codex home settings, and never commit that file.
-5. Create the mounted host paths and make them writable by the container user:
+5. Decide the VPS disk encryption posture before storing logs, SQLite state, workspaces, or Codex
+   OAuth state on the host. If the VPS disk is not encrypted, record that in release notes as an
+   accepted risk; Surfer v0.1 does not add application-level encryption at rest.
+6. Create the mounted host paths and make them writable by the container user:
 
    ```bash
    sudo mkdir -p /srv/surfer/{workspaces,logs,state,codex}
@@ -208,7 +211,7 @@ SQLite ledger is local operational state for run claims, events, links, pending 
    `SURFER_HOST_LOGS_DIR`, `SURFER_HOST_STATE_DIR`, and `SURFER_HOST_CODEX_HOME`. Inside the
    container they remain `/srv/surfer/workspaces`, `/srv/surfer/logs`, `/srv/surfer/state`, and
    `/home/surfer/.codex`.
-6. Build and check the deployment shape. By default Compose binds the service to
+7. Build and check the deployment shape. By default Compose binds the service to
    `127.0.0.1:4000`; keep that default unless a firewall/VPN/reverse-proxy layer provides the same
    operator API isolation.
 
@@ -217,13 +220,13 @@ SQLite ledger is local operational state for run claims, events, links, pending 
    docker compose -f docker-compose.surfer.yml build
    ```
 
-7. Authenticate the operator-owned OpenAI Pro Codex session into the mounted Codex home:
+8. Authenticate the operator-owned OpenAI Pro Codex session into the mounted Codex home:
 
    ```bash
    docker compose -f docker-compose.surfer.yml run --rm --entrypoint codex surfer login
    ```
 
-8. From the repo checkout, run preflight with the same `.env.surfer` values loaded. Use
+9. From the repo checkout, run preflight with the same `.env.surfer` values loaded. Use
    `--skip-codex` only before the OAuth session exists:
 
    ```bash
@@ -233,20 +236,20 @@ SQLite ledger is local operational state for run claims, events, links, pending 
    mise exec -- mix surfer.live_preflight
    ```
 
-9. Configure platform ingress:
+10. Configure platform ingress:
    - Linear `AgentSessionEvent`: `https://<your-vps-host>/webhooks/linear/agent`.
    - Discord Interactions Endpoint URL:
      `https://<your-vps-host>/webhooks/discord/interactions`.
    - GitHub: outbound token and repository routing only. Do not add GitHub webhooks for Surfer
      v0.1.
-10. Start Surfer:
+11. Start Surfer:
 
     ```bash
     docker compose -f docker-compose.surfer.yml up -d --build
     curl -fsS http://127.0.0.1:4000/api/v1/state
     ```
 
-11. Smoke one real path from each enabled surface before calling the host ready:
+12. Smoke one real path from each enabled surface before calling the host ready:
     - Trigger a Linear Agent session and confirm started and final/error agent activities.
     - Run Discord `/surfer ask`, `/surfer issue`, or `/surfer run` from an allowed guild/channel.
     - Confirm repository routing, Codex execution, and GitHub PR creation or update for a durable

@@ -734,6 +734,14 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert get_in(workflow, ["polling", "interval_ms"]) == 5000
   end
 
+  test "Surfer hosting docs require disk encryption decision and release-note risk callout" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "disk encryption"
+    assert readme =~ "release notes"
+    assert readme =~ "accepted risk"
+  end
+
   test "operator requeues pending platform writes and records drained or failed outcomes", %{db_path: db_path} do
     request = claimed_request!(db_path)
 
