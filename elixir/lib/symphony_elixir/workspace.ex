@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Workspace do
 
   require Logger
   alias SymphonyElixir.{Config, PathSafety, SSH}
+  alias SymphonyElixir.Surfer.SecretRedactor
 
   @remote_workspace_marker "__SYMPHONY_WORKSPACE__"
 
@@ -440,13 +441,14 @@ defmodule SymphonyElixir.Workspace do
 
   defp sanitize_hook_output_for_log(output, max_bytes \\ 2_048) do
     binary_output = IO.iodata_to_binary(output)
+    redacted_output = SecretRedactor.redact_text(binary_output)
 
-    case byte_size(binary_output) <= max_bytes do
+    case byte_size(redacted_output) <= max_bytes do
       true ->
-        binary_output
+        redacted_output
 
       false ->
-        binary_part(binary_output, 0, max_bytes) <> "... (truncated)"
+        binary_part(redacted_output, 0, max_bytes) <> "... (truncated)"
     end
   end
 

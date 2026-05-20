@@ -6,6 +6,7 @@ defmodule SymphonyElixir.AgentRunner do
   require Logger
   alias SymphonyElixir.Codex.AppServer
   alias SymphonyElixir.{Config, Linear.Issue, PromptBuilder, Tracker, Workspace}
+  alias SymphonyElixir.Surfer.SecretRedactor
 
   @type worker_host :: String.t() | nil
 
@@ -22,8 +23,9 @@ defmodule SymphonyElixir.AgentRunner do
         :ok
 
       {:error, reason} ->
-        Logger.error("Agent run failed for #{issue_context(issue)}#{log_context}: #{inspect(reason)}")
-        raise RuntimeError, "Agent run failed for #{issue_context(issue)}#{log_context}: #{inspect(reason)}"
+        safe_reason = safe_inspect(reason)
+        Logger.error("Agent run failed for #{issue_context(issue)}#{log_context}: #{safe_reason}")
+        raise RuntimeError, "Agent run failed for #{issue_context(issue)}#{log_context}: #{safe_reason}"
     end
   end
 
@@ -208,6 +210,12 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
+
+  defp safe_inspect(reason) do
+    reason
+    |> SecretRedactor.redact()
+    |> inspect()
+  end
 
   defp surfer_log_context(opts) when is_list(opts) do
     case opts |> Keyword.get(:surfer_context) |> surfer_run_id() do

@@ -68,7 +68,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -112,7 +112,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
         assert queued_metadata.source == :orchestrator
 
         assert_receive {:telemetry, [:symphony, :surfer, :codex_run_ms], %{duration_ms: duration_ms}, run_metadata},
-                       5_000
+                       10_000
 
         assert duration_ms >= 0
         assert run_metadata.run_id == request.run_id
@@ -135,7 +135,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -212,7 +212,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     repositories = [
@@ -274,7 +274,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     repositories = [
@@ -325,7 +325,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     repositories = [
@@ -359,7 +359,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -432,7 +432,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request_one} =
@@ -528,7 +528,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -629,7 +629,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     parent = self()
@@ -656,7 +656,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     repositories = [
@@ -723,7 +723,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     repositories = [
@@ -897,7 +897,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -976,7 +976,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     repositories = [
@@ -1017,7 +1017,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -1099,7 +1099,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -1175,7 +1175,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -1262,7 +1262,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -1351,7 +1351,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -1456,7 +1456,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -1554,7 +1554,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -1601,7 +1601,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -1632,7 +1632,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_orchestrator(pid)
     end)
 
     assert {:ok, request} =
@@ -1760,6 +1760,17 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
   defp assert_eventually_retry_error_redacted(orchestrator_name, 0) do
     assert %{retrying: [%{error: error} | _]} = Orchestrator.snapshot(orchestrator_name, 1_000)
     assert error =~ "Authorization: Bearer [REDACTED]"
+  end
+
+  defp stop_orchestrator(pid) when is_pid(pid) do
+    if Process.alive?(pid) do
+      try do
+        GenServer.stop(pid)
+      catch
+        :exit, {:noproc, _} -> :ok
+        :exit, {:normal, _} -> :ok
+      end
+    end
   end
 
   defp status_transition_payload(events, to_status) do

@@ -19,6 +19,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     linear_issue_create_fun = Application.get_env(:symphony_elixir, :surfer_linear_issue_create_fun)
     discord_post_fun = Application.get_env(:symphony_elixir, :surfer_discord_post_fun)
     discord_interaction_response_fun = Application.get_env(:symphony_elixir, :surfer_discord_interaction_response_fun)
+    orchestrator_server = Application.get_env(:symphony_elixir, :surfer_orchestrator_server)
 
     discord_interaction_retry_backoff_ms =
       Application.get_env(:symphony_elixir, :surfer_discord_interaction_retry_backoff_ms)
@@ -47,6 +48,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       restore_app_env(:surfer_linear_issue_create_fun, linear_issue_create_fun)
       restore_app_env(:surfer_discord_post_fun, discord_post_fun)
       restore_app_env(:surfer_discord_interaction_response_fun, discord_interaction_response_fun)
+      restore_app_env(:surfer_orchestrator_server, orchestrator_server)
       restore_app_env(:surfer_discord_interaction_retry_backoff_ms, discord_interaction_retry_backoff_ms)
       restore_app_env(:surfer_discord_interaction_retry_window_ms, discord_interaction_retry_window_ms)
       restore_app_env(:surfer_pending_write_retry_fun, pending_write_retry_fun)
@@ -2314,6 +2316,10 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       {:error, :interaction_down}
     end)
 
+    Application.put_env(:symphony_elixir, :surfer_discord_post_fun, fn _channel_id, _body ->
+      {:error, :channel_down}
+    end)
+
     command_body =
       Jason.encode!(%{
         id: "interaction-ledger-capture",
@@ -4179,6 +4185,8 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       :ok
     end)
 
+    Application.put_env(:symphony_elixir, :surfer_orchestrator_server, Module.concat(__MODULE__, :DiscordCancelUnavailableOrchestrator))
+
     Application.put_env(:symphony_elixir, :surfer_discord_interaction_response_fun, fn _application_id, _token, body ->
       send(parent, {:interaction_response, body})
       :ok
@@ -4264,6 +4272,8 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       send(parent, {:discord_dispatch, request.run_id})
       :ok
     end)
+
+    Application.put_env(:symphony_elixir, :surfer_orchestrator_server, Module.concat(__MODULE__, :DiscordCooldownUnavailableOrchestrator))
 
     Application.put_env(:symphony_elixir, :surfer_discord_interaction_response_fun, fn _application_id, _token, body ->
       send(parent, {:interaction_response, body})
@@ -4779,6 +4789,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
 
     WorkflowStore.force_reload()
     assert :ok = RunLedger.initialize(db_path)
+    Application.put_env(:symphony_elixir, :surfer_orchestrator_server, Module.concat(__MODULE__, :OperatorControlUnavailableOrchestrator))
 
     cancel_request = claimed_operator_control_request!(db_path, "cancel")
     assert :ok = RunLedger.update_status(db_path, cancel_request.run_id, "running")

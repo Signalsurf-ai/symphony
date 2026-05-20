@@ -211,6 +211,34 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "workspace hook failure logs redact secret-shaped output" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-hook-redaction-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "printf 'Authorization: Bearer hook-secret\\napi_key=hook-api-secret\\n' && exit 17"
+      )
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
+                   Workspace.create_for_issue("MT-HOOK-SECRET")
+        end)
+
+      assert log =~ "Authorization: Bearer [REDACTED]"
+      assert log =~ "api_key=[REDACTED]"
+      refute log =~ "hook-secret"
+      refute log =~ "hook-api-secret"
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
   test "workspace surfaces after_create hook timeouts" do
     workspace_root =
       Path.join(

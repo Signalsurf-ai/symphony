@@ -1289,6 +1289,62 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent runner redacts secret-shaped hook failures in logs and errors" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-hook-redaction-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      File.mkdir_p!(workspace_root)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_before_run: "printf 'Authorization: Bearer runner-hook-secret\\napi_key=runner-api-secret\\n' && exit 17"
+      )
+
+      issue = %Issue{
+        id: "issue-surfer-hook-redaction",
+        identifier: "ENG-102",
+        title: "Hook redaction",
+        description: "Do not leak hook secrets",
+        state: "In Progress",
+        labels: []
+      }
+
+      parent = self()
+
+      log =
+        capture_log(fn ->
+          exception =
+            assert_raise RuntimeError, fn ->
+              AgentRunner.run(issue, nil,
+                surfer_context: %{run_id: "surf_run_hook_redaction"},
+                workspace_identifier: ["web", "surf_run_hook_redaction"],
+                issue_state_fetcher: fn _issue_ids -> {:ok, []} end
+              )
+            end
+
+          send(parent, {:agent_exception_message, Exception.message(exception)})
+        end)
+
+      assert_receive {:agent_exception_message, message}
+      assert log =~ "run_id=surf_run_hook_redaction"
+      assert log =~ "Authorization: Bearer [REDACTED]"
+      assert log =~ "api_key=[REDACTED]"
+      assert message =~ "Authorization: Bearer [REDACTED]"
+      assert message =~ "api_key=[REDACTED]"
+      refute log =~ "runner-hook-secret"
+      refute log =~ "runner-api-secret"
+      refute message =~ "runner-hook-secret"
+      refute message =~ "runner-api-secret"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner forwards timestamped codex updates to recipient" do
     test_root =
       Path.join(
