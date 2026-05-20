@@ -1140,6 +1140,114 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "app server redacts malformed dynamic tool results before returning them to Codex" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-tool-result-redaction-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-90C")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-tool-result-redaction.trace")
+      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
+
+      on_exit(fn ->
+        if is_binary(previous_trace) do
+          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
+        else
+          System.delete_env("SYMP_TEST_CODEx_TRACE")
+        end
+      end)
+
+      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-tool-result-redaction.trace}"
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' \"$line\" >> \"$trace_file\"
+
+        case \"$count\" in
+          1)
+            printf '%s\\n' '{\"id\":1,\"result\":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-90c\"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-90c\"}}}'
+            printf '%s\\n' '{\"id\":104,\"method\":\"item/tool/call\",\"params\":{\"tool\":\"linear_graphql\",\"callId\":\"call-90c\",\"threadId\":\"thread-90c\",\"turnId\":\"turn-90c\",\"arguments\":{\"query\":\"query Viewer { viewer { id } }\"}}}'
+            ;;
+          5)
+            printf '%s\\n' '{\"method\":\"turn/completed\"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-tool-result-redaction",
+        identifier: "MT-90C",
+        title: "Tool result redaction",
+        description: "Ensure malformed dynamic tool results are redacted before returning to Codex",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-90C",
+        labels: ["backend"]
+      }
+
+      tool_executor = fn _tool, _arguments ->
+        {:error, %{authorization: "Bearer tool-result-secret", reason: "access_token=tool-result-secret"}}
+      end
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Handle malformed tool result", issue, tool_executor: tool_executor)
+
+      trace = File.read!(trace_file)
+      lines = String.split(trace, "\n", trim: true)
+
+      assert Enum.any?(lines, fn line ->
+               if String.starts_with?(line, "JSON:") do
+                 payload =
+                   line
+                   |> String.trim_leading("JSON:")
+                   |> Jason.decode!()
+
+                 payload["id"] == 104 and
+                   get_in(payload, ["result", "success"]) == false and
+                   String.contains?(get_in(payload, ["result", "output"]), "authorization: \"[REDACTED]\"") and
+                   String.contains?(get_in(payload, ["result", "output"]), "access_token=[REDACTED]") and
+                   get_in(payload, ["result", "contentItems", Access.at(0), "text"]) ==
+                     get_in(payload, ["result", "output"])
+               else
+                 false
+               end
+             end)
+
+      refute trace =~ "tool-result-secret"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server buffers partial JSON lines until newline terminator" do
     test_root =
       Path.join(

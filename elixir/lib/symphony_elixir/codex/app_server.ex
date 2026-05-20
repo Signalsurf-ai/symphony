@@ -709,10 +709,12 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp normalize_dynamic_tool_result(result) do
+    output = safe_inspect(result)
+
     %{
       "success" => false,
-      "output" => inspect(result),
-      "contentItems" => dynamic_tool_content_items(inspect(result))
+      "output" => output,
+      "contentItems" => dynamic_tool_content_items(output)
     }
   end
 
