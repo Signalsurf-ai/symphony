@@ -215,15 +215,15 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       source: prompt_safe_source(request.source),
       trigger_type: to_string(request.source.trigger_type),
       organization_id: request.organization_id,
-      lineage: request.lineage,
-      linear: request.lineage.linear,
-      discord: request.lineage.discord,
-      github: request.lineage.github,
+      lineage: prompt_safe_map(request.lineage),
+      linear: prompt_safe_map(request.lineage.linear),
+      discord: prompt_safe_map(request.lineage.discord),
+      github: prompt_safe_map(request.lineage.github),
       repository: prompt_safe_repository(request.routing),
-      routing: request.routing,
-      constraints: request.constraints || %{},
+      routing: prompt_safe_map(request.routing),
+      constraints: prompt_safe_map(request.constraints || %{}),
       prompt_context: sanitize_prompt_context(context_value(context, :prompt_context)),
-      company_brain_refs: context_value(context, :company_brain_refs) || [],
+      company_brain_refs: prompt_safe_value(context_value(context, :company_brain_refs) || []),
       company_brain_policy: company_brain_policy()
     }
   end
@@ -247,12 +247,12 @@ defmodule SymphonyElixir.Surfer.RunRequest do
     %{
       platform: source |> Map.get(:platform) |> to_string_or_nil(),
       trigger_type: source |> Map.get(:trigger_type) |> to_string_or_nil(),
-      raw_event_id: Map.get(source, :raw_event_id),
-      actor_id: Map.get(source, :actor_id),
-      organization_id: Map.get(source, :organization_id),
-      received_at: Map.get(source, :received_at),
-      action: Map.get(source, :action),
-      natural_event_key: Map.get(source, :natural_event_key)
+      raw_event_id: prompt_safe_value(Map.get(source, :raw_event_id)),
+      actor_id: prompt_safe_value(Map.get(source, :actor_id)),
+      organization_id: prompt_safe_value(Map.get(source, :organization_id)),
+      received_at: prompt_safe_value(Map.get(source, :received_at)),
+      action: prompt_safe_value(Map.get(source, :action)),
+      natural_event_key: prompt_safe_value(Map.get(source, :natural_event_key))
     }
   end
 
@@ -260,14 +260,19 @@ defmodule SymphonyElixir.Surfer.RunRequest do
 
   defp prompt_safe_repository(routing) when is_map(routing) do
     %{
-      key: Map.get(routing, :repository_key) || Map.get(routing, "repository_key") || Map.get(routing, :repository) || Map.get(routing, "repository"),
-      full_name: Map.get(routing, :repository_full_name) || Map.get(routing, "repository_full_name"),
+      key: prompt_safe_value(routing_value(routing, :repository_key) || routing_value(routing, :repository)),
+      full_name: routing |> routing_value(:repository_full_name) |> prompt_safe_value(),
       confidence: routing |> routing_value(:confidence) |> to_string_or_nil(),
-      reason: routing_value(routing, :reason)
+      reason: routing |> routing_value(:reason) |> prompt_safe_value()
     }
   end
 
   defp prompt_safe_repository(_routing), do: %{}
+
+  defp prompt_safe_map(value) when is_map(value), do: SecretRedactor.redact(value)
+  defp prompt_safe_map(_value), do: %{}
+
+  defp prompt_safe_value(value), do: SecretRedactor.redact(value)
 
   defp to_string_or_nil(nil), do: nil
   defp to_string_or_nil(value), do: to_string(value)

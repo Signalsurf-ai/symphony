@@ -187,6 +187,8 @@ notification webhook contract instead of re-enabling project polling as the defa
 - Surfer prompt context injection for run ID, request mode, source platform,
   trigger, lineage IDs, routing, read/write constraints, a bounded redacted platform prompt-context
   excerpt, and scoped Company Brain provenance with background authority labeling when retrieved.
+  The structured source, lineage, routing, constraint, and Company Brain provenance maps are
+  recursively redacted before the first Codex turn.
 - Final Linear/Discord status summaries include provenance-only Company Brain refs when retrieved;
   raw summaries stay out of final activity bodies.
 

@@ -171,6 +171,73 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     refute context.prompt_context =~ "quoted-webhook-secret"
   end
 
+  test "surfer context redacts token-shaped values from structured prompt maps" do
+    request = %RunRequest{
+      run_id: "surf_run_redact",
+      source: %{
+        platform: :linear,
+        trigger_type: :delegation,
+        raw_event_id: "Authorization: Bearer source-secret",
+        actor_id: "actor-1",
+        organization_id: "org-1",
+        natural_event_key: "linear:session-1:created:issue-1:durable_task"
+      },
+      request: %{
+        mode: :durable_task,
+        trigger_type: :delegation,
+        title: "Fix routing api_key=title-secret",
+        body: "Implement routing access_token=body-secret"
+      },
+      lineage: %{
+        linear: %{issue_id: "issue-1", agent_session_id: "session-1"},
+        discord: %{message_id: "message-1", interaction_token: "discord-interaction-secret"},
+        github: %{repo: "acme/web", comment_id: "api_key=github-comment-secret"}
+      },
+      routing: %{
+        repository_key: "web",
+        repository_full_name: "acme/web",
+        confidence: :source_hint,
+        reason: "matched with webhook_secret=route-secret"
+      },
+      context: %{
+        prompt_context: "Bearer prompt-secret",
+        company_brain_refs: [
+          %{path: "meetings/2026-05-01.md", summary: "Authorization: Bearer brain-secret", token: "brain-token"}
+        ]
+      },
+      constraints: %{read_only: false, access_token: "constraint-token"},
+      issue: nil,
+      organization_id: "org-1"
+    }
+
+    context = RunRequest.surfer_context(request)
+
+    assert context.source.raw_event_id == "Authorization: Bearer [REDACTED]"
+    assert context.request.title == "Fix routing api_key=[REDACTED]"
+    assert context.request.body == "Implement routing access_token=[REDACTED]"
+    assert context.discord.interaction_token == "[REDACTED]"
+    assert context.github.comment_id == "api_key=[REDACTED]"
+    assert context.routing.reason == "matched with webhook_secret=[REDACTED]"
+    assert context.repository.reason == "matched with webhook_secret=[REDACTED]"
+    assert context.prompt_context == "Bearer [REDACTED]"
+
+    assert context.company_brain_refs == [
+             %{path: "meetings/2026-05-01.md", summary: "Authorization: Bearer [REDACTED]", token: "[REDACTED]"}
+           ]
+
+    assert context.constraints.access_token == "[REDACTED]"
+    refute inspect(context) =~ "source-secret"
+    refute inspect(context) =~ "title-secret"
+    refute inspect(context) =~ "body-secret"
+    refute inspect(context) =~ "discord-interaction-secret"
+    refute inspect(context) =~ "github-comment-secret"
+    refute inspect(context) =~ "route-secret"
+    refute inspect(context) =~ "prompt-secret"
+    refute inspect(context) =~ "brain-secret"
+    refute inspect(context) =~ "brain-token"
+    refute inspect(context) =~ "constraint-token"
+  end
+
   test "normalizes Discord code questions and issue creation requests" do
     code_question = %{
       "id" => "message-1",
