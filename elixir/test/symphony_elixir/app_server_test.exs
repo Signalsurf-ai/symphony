@@ -115,12 +115,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-1001"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-1001"}}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-1001"}}}'
             ;;
           4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-1001"}}}'
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
@@ -221,12 +221,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{\"id\":1,\"result\":{}}'
             ;;
           2)
-            printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-88\"}}}'
             ;;
           3)
-            printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-88\"}}}'
+            printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-88\"}}}'
             ;;
           4)
+            printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-88\"}}}'
             printf '%s\\n' '{\"method\":\"turn/input_required\",\"id\":\"resp-1\",\"params\":{\"requiresInput\":true,\"reason\":\"blocked\"}}'
             ;;
           *)
@@ -286,9 +286,11 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-89"}}}'
             ;;
           3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-89"}}}'
+            ;;
+          4)
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-89"}}}'
             printf '%s\\n' '{"id":99,"method":"item/commandExecution/requestApproval","params":{"command":"gh pr view","cwd":"/tmp","reason":"need approval"}}'
             ;;
@@ -1091,12 +1093,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '{"id":1,"result":{},"padding":"%s"}\\n' "$padding"
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-91"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-91"}}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-91"}}}'
             ;;
           4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-91"}}}'
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
@@ -1237,12 +1239,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-93"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-93"}}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-93"}}}'
             ;;
           4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-93"}}}'
             printf '%s\\n' '{"method":"turn/completed"'
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
@@ -1323,12 +1325,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-remote"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-remote"}}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-remote"}}}'
             ;;
           4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-remote"}}}'
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
