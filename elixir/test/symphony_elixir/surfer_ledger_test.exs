@@ -152,6 +152,59 @@ defmodule SymphonyElixir.SurferLedgerTest do
     assert run["correlation_id"] == "linear:session-actor-1:created:comment-actor-1:durable_task"
   end
 
+  test "redacts secret-shaped run lookup correlation columns before persisting", %{db_path: db_path} do
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-run-column-redaction",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    request = %{
+      request
+      | source:
+          Map.merge(request.source, %{
+            actor_id: "Authorization: Bearer actor-secret",
+            natural_event_key: "access_token=correlation-secret"
+          }),
+        lineage: %{
+          linear: %{
+            issue_id: "api_key=linear-issue-secret",
+            agent_session_id: "oauth_token=linear-session-secret"
+          },
+          discord: %{
+            channel_id: "discord_interaction_token=channel-secret",
+            message_id: "access_token=message-secret"
+          },
+          github: %{}
+        },
+        routing: %{repository: "repo?access_token=repository-secret"}
+    }
+
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, "safe-run-column-redaction-key", request, platform: :discord)
+
+    assert {:ok, run} = RunLedger.get_run(db_path, request.run_id)
+    assert run["repository"] == "repo?access_token=[REDACTED]"
+    assert run["created_by"] == "Authorization: Bearer [REDACTED]"
+    assert run["actor_id"] == "Authorization: Bearer [REDACTED]"
+    assert run["correlation_id"] == "access_token=[REDACTED]"
+    assert run["canonical_linear_issue_id"] == "api_key=[REDACTED]"
+    assert run["linear_agent_session_id"] == "oauth_token=[REDACTED]"
+    assert run["discord_channel_id"] == "discord_interaction_token=[REDACTED]"
+    assert run["discord_message_id"] == "access_token=[REDACTED]"
+
+    encoded_run = inspect(run)
+    refute encoded_run =~ "actor-secret"
+    refute encoded_run =~ "correlation-secret"
+    refute encoded_run =~ "linear-issue-secret"
+    refute encoded_run =~ "linear-session-secret"
+    refute encoded_run =~ "channel-secret"
+    refute encoded_run =~ "message-secret"
+    refute encoded_run =~ "repository-secret"
+  end
+
   test "writes redacted structured JSONL run logs when Surfer logs_dir is configured", %{db_path: db_path} do
     logs_dir = Path.join(System.tmp_dir!(), "surfer-run-logs-#{System.unique_integer([:positive])}")
     File.mkdir_p!(logs_dir)

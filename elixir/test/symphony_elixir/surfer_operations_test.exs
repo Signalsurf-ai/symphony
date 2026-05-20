@@ -759,6 +759,13 @@ defmodule SymphonyElixir.SurferOperationsTest do
     refute workflow =~ "LINEAR_PROJECT_SLUG"
   end
 
+  test "Surfer docs describe redacted run lookup correlation columns" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "redacted run lookup correlation columns"
+    assert readme =~ ~r/redacted\s+operator lookup data/
+  end
+
   test "Surfer hosting docs include the PRD live-smoke release sample gate" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 
