@@ -2106,7 +2106,7 @@ defmodule SymphonyElixir.Orchestrator do
         ledger_path(settings.surfer.storage.sqlite_path)
 
       {:error, reason} ->
-        Logger.debug("Skipping Surfer ledger write because config is unavailable: #{inspect(reason)}")
+        Logger.debug("Skipping Surfer ledger write because config is unavailable: #{safe_inspect(reason)}")
         :disabled
     end
   end
@@ -2260,7 +2260,7 @@ defmodule SymphonyElixir.Orchestrator do
         |> maybe_clear_disabled_polling()
 
       {:error, reason} ->
-        Logger.debug("Skipping orchestrator runtime config refresh: #{inspect(reason)}")
+        Logger.debug("Skipping orchestrator runtime config refresh: #{safe_inspect(reason)}")
         state
     end
   end

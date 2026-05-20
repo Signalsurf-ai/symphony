@@ -353,19 +353,21 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     refute log =~ "brain-api-key"
   end
 
-  test "Surfer warning logs inspect failure reasons through the shared redactor" do
+  test "Surfer log lines inspect failure reasons through the shared redactor" do
     source = File.read!("lib/symphony_elixir/orchestrator.ex")
 
-    leaking_surfer_warnings =
+    leaking_surfer_logs =
       source
       |> String.split("\n")
       |> Enum.filter(fn line ->
-        String.contains?(line, "Logger.warning") and
-          (String.contains?(line, "Surfer") or String.contains?(line, "platform write")) and
+        String.contains?(line, "Logger.") and
+          (String.contains?(line, "Surfer") or String.contains?(line, "surfer") or
+             String.contains?(line, "platform write") or
+             String.contains?(line, "orchestrator runtime config")) and
           String.contains?(line, ~S|#{inspect(reason)}|)
       end)
 
-    assert leaking_surfer_warnings == []
+    assert leaking_surfer_logs == []
   end
 
   test "orchestrator direct dispatch refuses an already claimed Linear issue" do
