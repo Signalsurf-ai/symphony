@@ -74,10 +74,10 @@ Do not use this `WORKFLOW.md` command for Surfer v0.1 hosting. Surfer uses
 
 ## Surfer v0.1 VPS Deployment
 
-Surfer is the organization-agent layer built on this runner. Its default trigger path is webhook
-first: Linear `AgentSessionEvent` and Discord Interactions enter Surfer directly. The existing
-Symphony Linear project poller remains available only as explicit opt-in legacy/fallback behavior
-and is disabled in the Surfer workflow example.
+Surfer is the organization-agent layer built on this runner. Its trigger path is webhook first:
+Linear `AgentSessionEvent` and Discord Interactions enter Surfer directly. The existing Symphony
+Linear project poller remains available only through a separate legacy/fallback workflow with
+Surfer platform ingress disabled.
 
 Linear Agent sessions are the Surfer v0.1 trigger contract. Delegating an issue to Surfer,
 mentioning Surfer, or sending a follow-up agent prompt should create `AgentSessionEvent` webhooks
@@ -96,11 +96,12 @@ notification webhook contract instead of re-enabling project polling as the defa
 - Linear webhook payload type handling requires `AgentSessionEvent`; missing or non-agent event
   types return `400` without dispatch.
 - Linear `AgentSessionEvent` action handling accepts `created` and `prompted`; missing or
-  unsupported actions return `400` without dispatch.
+  unsupported actions return `400` without dispatch. `prompted` events also require nonblank
+  directive text before claim or dispatch.
 - Linear idempotency keys require real natural-key fields: agent session ID, and either a
   comment/issue ID for `created` or an agent activity ID for `prompted`.
-- Surfer v0.1 deployment defaults disable the legacy Symphony Linear project poller with
-  `polling.enabled: false`; direct webhook dispatch remains available.
+- Surfer v0.1 deployment disables the legacy Symphony Linear project poller with
+  `polling.enabled: false`; config rejects enabling it while Surfer direct ingress is enabled.
 - Enabled Linear, Discord, and GitHub config fails closed at application startup when required
   secrets are missing.
 - Early Linear `thought` activity plus final `response` or `error` activity for direct-dispatch runs.
@@ -420,9 +421,9 @@ polling:
 
 Linear Agent sessions and Discord Interactions are webhook/direct-dispatch paths. When Surfer
 Linear or Discord ingress is enabled and `polling.enabled` is omitted, the runtime defaults the
-legacy poller to disabled. Enable the legacy poller only by explicitly setting
-`polling.enabled: true` as fallback for non-agent Linear project issues, and do not rely on both
-trigger paths for the same task queue unless you are intentionally testing migration behavior.
+legacy poller to disabled. If `polling.enabled: true` is configured together with Surfer direct
+ingress, config validation fails. Run fallback project polling only from a separate legacy Symphony
+workflow with Surfer platform ingress disabled.
 The poller is not needed for normal Surfer delegation, mention, or follow-up prompt handling.
 
 ## Configuration

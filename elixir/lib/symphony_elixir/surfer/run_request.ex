@@ -49,7 +49,8 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       {request_mode, trigger_type} = classify_linear_request(directive)
 
       with {:ok, natural_event_key} <-
-             linear_natural_event_key(session, action, comment, agent_activity, issue, request_mode) do
+             linear_natural_event_key(session, action, comment, agent_activity, issue, request_mode),
+           :ok <- validate_linear_prompted_directive(action, directive) do
         {:ok,
          %__MODULE__{
            run_id: new_run_id(),
@@ -238,6 +239,17 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   defp validate_linear_agent_session_action(action) when action in @linear_agent_session_actions, do: :ok
 
   defp validate_linear_agent_session_action(action), do: {:error, {:unsupported_linear_agent_action, action}}
+
+  defp validate_linear_prompted_directive("prompted", directive) when is_binary(directive) do
+    if String.trim(directive) == "" do
+      {:error, :missing_linear_prompted_directive}
+    else
+      :ok
+    end
+  end
+
+  defp validate_linear_prompted_directive("prompted", _directive), do: {:error, :missing_linear_prompted_directive}
+  defp validate_linear_prompted_directive(_action, _directive), do: :ok
 
   defp linear_directive_text("prompted", comment, agent_activity, prompt_context) do
     first_present([

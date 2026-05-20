@@ -616,15 +616,15 @@ defmodule SymphonyElixir.Config.Schema do
     config = config |> normalize_keys() |> drop_nil_values()
     polling_enabled_configured? = polling_enabled_configured?(config)
 
-    config
-    |> changeset()
-    |> apply_action(:validate)
-    |> case do
-      {:ok, settings} ->
-        {:ok, finalize_settings(settings, polling_enabled_configured?: polling_enabled_configured?)}
-
-      {:error, changeset} ->
+    with {:ok, settings} <- config |> changeset() |> apply_action(:validate),
+         :ok <- validate_surfer_polling_boundary(settings, polling_enabled_configured?) do
+      {:ok, finalize_settings(settings, polling_enabled_configured?: polling_enabled_configured?)}
+    else
+      {:error, %Ecto.Changeset{} = changeset} ->
         {:error, {:invalid_workflow_config, format_errors(changeset)}}
+
+      {:error, message} when is_binary(message) ->
+        {:error, {:invalid_workflow_config, message}}
     end
   end
 
@@ -742,6 +742,16 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp default_surfer_polling(polling, _surfer, true), do: polling
+
+  defp validate_surfer_polling_boundary(settings, true) do
+    if settings.polling.enabled == true and surfer_direct_ingress_enabled?(settings.surfer) do
+      {:error, "polling.enabled cannot be true when Surfer direct ingress is enabled; use a legacy Symphony polling workflow with Surfer platforms disabled"}
+    else
+      :ok
+    end
+  end
+
+  defp validate_surfer_polling_boundary(_settings, false), do: :ok
 
   defp surfer_direct_ingress_enabled?(%Surfer{} = surfer) do
     surfer.platforms.linear.enabled == true or surfer.platforms.discord.enabled == true

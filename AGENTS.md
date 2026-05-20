@@ -10,7 +10,7 @@
 
 - The docs record current findings about Linear custom agents, Multica, Warp/Oz, and the earlier Kepler/Symphony experiment.
 - Surfer v0.1 is VPS-owned. Warp/Oz is reference material only, not a deployment target or runtime dependency.
-- Treat Linear's official custom-agent model as webhook-first: `AgentSessionEvent` enters Surfer, and progress is reported back through Linear agent activities. Do not make Surfer depend on Linear project polling by default; keep the legacy Symphony poller opt-in fallback only.
+- Treat Linear's official custom-agent model as webhook-first: `AgentSessionEvent` enters Surfer, and progress is reported back through Linear agent activities. Do not enable the legacy Symphony poller in the same Surfer workflow; use it only as a separate fallback workflow with Surfer platform ingress disabled.
 - Treat Discord, GitHub, and Linear as first-class Surfer surfaces. Discord support is required, while Linear is the canonical state machine and source of truth for durable coding tasks.
 - Treat Company Brain as optional on-demand retrieval from `Signalsurf-ai/signalsurf-company-brain`, not context that must be loaded for every run.
 - Use Multica as design input for trigger semantics, task lineage, and repo scoping, not as a control-plane template to copy wholesale.

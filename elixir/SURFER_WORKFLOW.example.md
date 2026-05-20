@@ -16,8 +16,9 @@ tracker:
     - Done
 polling:
   # Surfer v0.1 is webhook-first through Linear AgentSessionEvent and Discord
-  # Interactions. Keep the legacy Symphony Linear project poller disabled unless
-  # an operator intentionally wants fallback polling for non-agent project issues.
+  # Interactions. Keep the legacy Symphony Linear project poller disabled in this
+  # workflow; fallback polling belongs in a separate legacy Symphony workflow with
+  # Surfer platform ingress disabled.
   enabled: false
   interval_ms: 5000
 workspace:

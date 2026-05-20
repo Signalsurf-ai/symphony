@@ -213,7 +213,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     prompted_payload =
       created_payload
       |> Map.put("action", "prompted")
-      |> put_in(["agentSession", "agentActivity"], %{"id" => "activity-1"})
+      |> put_in(["agentSession", "agentActivity"], %{"id" => "activity-1", "body" => "Please implement"})
 
     assert {:ok, prompted} = RunRequest.from_linear_agent_session_event(prompted_payload)
     assert RunRequest.idempotency_key(prompted) == "linear:session-1:prompted:activity-1:durable_task"
@@ -274,6 +274,22 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     }
 
     assert {:error, :missing_linear_event_type} =
+             RunRequest.from_linear_agent_session_event(payload)
+  end
+
+  test "rejects prompted Linear AgentSessionEvent payloads without prompt text" do
+    payload = %{
+      "type" => "AgentSessionEvent",
+      "action" => "prompted",
+      "webhookId" => "delivery-blank-prompted",
+      "agentSession" => %{
+        "id" => "session-blank-prompted",
+        "issue" => %{"id" => "issue-1", "identifier" => "ENG-1", "title" => "Fix", "state" => %{"name" => "Todo"}},
+        "agentActivity" => %{"id" => "activity-blank", "body" => "   "}
+      }
+    }
+
+    assert {:error, :missing_linear_prompted_directive} =
              RunRequest.from_linear_agent_session_event(payload)
   end
 

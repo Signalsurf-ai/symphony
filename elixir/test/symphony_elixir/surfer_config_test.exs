@@ -256,7 +256,7 @@ defmodule SymphonyElixir.SurferConfigTest do
     assert settings.surfer.platforms.github.token == "github-token"
   end
 
-  test "defaults Surfer direct ingress to no legacy Linear polling unless explicitly enabled" do
+  test "rejects legacy Linear polling when Surfer direct ingress is enabled" do
     File.write!(
       Workflow.workflow_file_path(),
       """
@@ -296,6 +296,25 @@ defmodule SymphonyElixir.SurferConfigTest do
             access_token: linear-token
         storage:
           sqlite_path: /tmp/surfer.sqlite3
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    assert {:error, {:invalid_workflow_config, message}} = Config.settings()
+    assert message =~ "polling.enabled cannot be true"
+    assert message =~ "Surfer direct ingress"
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      polling:
+        enabled: true
       ---
       Prompt
       """
