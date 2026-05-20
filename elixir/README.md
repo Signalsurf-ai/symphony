@@ -272,6 +272,10 @@ SQLite ledger is local operational state for run claims, events, links, pending 
       run.
     - Verify operator lookup through the SSH tunnel:
       `curl -fsS http://127.0.0.1:4000/api/v1/surfer/runs/<run_id>`.
+13. Before declaring v0.1 release-ready, record a live-smoke sample of at least 10 representative
+    runs across Linear, Discord, repository routing, and operator controls. The release gate is
+    `>= 80%` successful runs with failed attempts triaged and visible in Linear, Discord, the
+    ledger, or the operator lookup.
 
 Use the pause switch when the host should stop accepting new work:
 

@@ -757,6 +757,13 @@ defmodule SymphonyElixir.SurferOperationsTest do
     refute workflow =~ "LINEAR_PROJECT_SLUG"
   end
 
+  test "Surfer hosting docs include the PRD live-smoke release sample gate" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ ~r/at least 10 representative\s+runs/
+    assert readme =~ ~r/>=\s*80%/
+  end
+
   test "Surfer docs list unsupported Linear-native features and GitHub ingress non-support" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 
