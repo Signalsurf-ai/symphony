@@ -30,6 +30,11 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
     {"SURFER_CODEX_HOME", :codex_home}
   ]
 
+  @comma_list_env MapSet.new([
+                    "DISCORD_ALLOWED_GUILDS",
+                    "DISCORD_ALLOWED_CHANNELS"
+                  ])
+
   @required_env @platform_env ++ Enum.map(@runtime_path_env, &elem(&1, 0))
   @default_codex_command "codex login status"
 
@@ -73,10 +78,28 @@ defmodule SymphonyElixir.Surfer.LivePreflight do
   defp missing_env(env) do
     Enum.filter(@required_env, fn key ->
       case Map.get(env, key) do
-        value when is_binary(value) -> String.trim(value) == ""
+        value when is_binary(value) -> missing_env_value?(key, value)
         _value -> true
       end
     end)
+  end
+
+  defp missing_env_value?(key, value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        true
+
+      MapSet.member?(@comma_list_env, key) ->
+        value
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.all?(&(&1 == ""))
+
+      true ->
+        false
+    end
   end
 
   defp check_public_url({failed, passed}, env) do

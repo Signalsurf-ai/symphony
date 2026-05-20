@@ -53,6 +53,22 @@ defmodule SymphonyElixir.SurferLivePreflightTest do
     assert "DISCORD_ALLOWED_CHANNELS" in result.missing_env
   end
 
+  test "rejects empty Discord allowlist values before live smoke" do
+    {env, cleanup} = required_env_with_paths()
+    on_exit(cleanup)
+
+    env =
+      env
+      |> Map.put("DISCORD_ALLOWED_GUILDS", " , ")
+      |> Map.put("DISCORD_ALLOWED_CHANNELS", ",,")
+
+    result = LivePreflight.check(env: env, codex_check?: false)
+
+    refute result.ok?
+    assert "DISCORD_ALLOWED_GUILDS" in result.missing_env
+    assert "DISCORD_ALLOWED_CHANNELS" in result.missing_env
+  end
+
   test "default check reads process environment and Codex login status" do
     original_env = Map.new(LivePreflight.required_env_vars(), &{&1, System.get_env(&1)})
     original_path = System.get_env("PATH")

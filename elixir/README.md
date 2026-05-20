@@ -345,9 +345,10 @@ mise exec -- mix surfer.live_preflight
 ```
 
 Use `--skip-codex` only for environment and writable mount checks before the Codex OAuth session has
-been created. A passing preflight verifies required live-smoke inputs, writable workspace/log/state
-and Codex home paths, a writable SQLite ledger parent directory, and the Codex login status command;
-it does not replace the Linear, Discord, GitHub, and runner smoke tests.
+been created. A passing preflight verifies required live-smoke inputs, non-empty Discord guild and
+channel allowlists, writable workspace/log/state and Codex home paths, a writable SQLite ledger
+parent directory, and the Codex login status command; it does not replace the Linear, Discord,
+GitHub, and runner smoke tests.
 
 Authenticate Codex once with the mounted Codex home. This is where the operator-owned OpenAI Pro
 OAuth session lives; do not bake it into the image.
@@ -410,9 +411,10 @@ Discord:
    - `cancel`, `retry`, and `takeover` use a string option named `run_id`.
 7. Set `DISCORD_GUILD_ID` for command registration and `DISCORD_REPORT_CHANNEL_ID` for the
    default report/routing channel. Set `DISCORD_ALLOWED_GUILDS` and `DISCORD_ALLOWED_CHANNELS`
-   to comma-separated allowlists for Discord ingress. If a gateway adapter or internal relay calls
-   `/webhooks/discord/message`, set `DISCORD_MESSAGE_INGRESS_SECRET` and sign each raw JSON body
-   with HMAC-SHA256 using `x-surfer-discord-relay-timestamp` and
+   to comma-separated allowlists for Discord ingress, with at least one nonblank ID in each list.
+   If a gateway adapter or internal relay calls `/webhooks/discord/message`, set
+   `DISCORD_MESSAGE_INGRESS_SECRET` and sign each raw JSON body with HMAC-SHA256 using
+   `x-surfer-discord-relay-timestamp` and
    `x-surfer-discord-relay-signature`; during relay secret rotation, set
    `DISCORD_MESSAGE_INGRESS_SECRET_NEXT` until the relay has switched over. Keep the allowlists
    scoped to the same approved Discord surfaces.
