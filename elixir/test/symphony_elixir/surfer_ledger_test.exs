@@ -424,6 +424,48 @@ defmodule SymphonyElixir.SurferLedgerTest do
     refute run["error_message"] =~ "interaction-token-secret"
   end
 
+  test "redacts secret-shaped GitHub status correlation fields before persisting them", %{db_path: db_path} do
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-redacted-github-status",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    request = %{
+      request
+      | lineage:
+          put_in(request.lineage, [:github], %{
+            repo: "acme/web?access_token=initial-github-repo-secret",
+            pull_request_number: "discord_interaction_token=initial-github-pr-secret"
+          })
+    }
+
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, RunRequest.idempotency_key(request), request, platform: :discord)
+
+    assert {:ok, run} = RunLedger.get_run(db_path, request.run_id)
+    assert run["github_repo"] == "acme/web?access_token=[REDACTED]"
+    assert run["github_pr_number"] == "discord_interaction_token=[REDACTED]"
+    refute run["github_repo"] =~ "initial-github-repo-secret"
+    refute run["github_pr_number"] =~ "initial-github-pr-secret"
+
+    assert :ok = RunLedger.update_status(db_path, request.run_id, "running")
+
+    assert :ok =
+             RunLedger.update_status(db_path, request.run_id, "awaiting_review",
+               github_repo: "acme/web?access_token=github-repo-secret",
+               github_pr_number: "discord_interaction_token=github-pr-secret"
+             )
+
+    assert {:ok, run} = RunLedger.get_run(db_path, request.run_id)
+    assert run["github_repo"] == "acme/web?access_token=[REDACTED]"
+    assert run["github_pr_number"] == "discord_interaction_token=[REDACTED]"
+    refute run["github_repo"] =~ "github-repo-secret"
+    refute run["github_pr_number"] =~ "github-pr-secret"
+  end
+
   test "redacts secret-shaped link fields before persisting them", %{db_path: db_path} do
     assert {:ok, request} =
              RunRequest.from_discord_message(%{

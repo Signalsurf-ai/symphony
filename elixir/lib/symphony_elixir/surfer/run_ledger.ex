@@ -856,8 +856,8 @@ defmodule SymphonyElixir.Surfer.RunLedger do
         request.lineage.linear[:agent_session_id],
         request.lineage.discord[:channel_id],
         request.lineage.discord[:message_id],
-        request.lineage.github[:repo],
-        request.lineage.github[:pull_request_number],
+        request.lineage.github[:repo] |> redacted_optional(),
+        request.lineage.github[:pull_request_number] |> redacted_optional(),
         now,
         now,
         encode_payload(context)
@@ -900,8 +900,8 @@ defmodule SymphonyElixir.Surfer.RunLedger do
         completed_at,
         Keyword.get(opts, :error_code) |> redacted_optional(),
         Keyword.get(opts, :error_message) |> redacted_optional(),
-        Keyword.get(opts, :github_repo) |> format_optional(),
-        Keyword.get(opts, :github_pr_number) |> format_optional(),
+        Keyword.get(opts, :github_repo) |> redacted_optional(),
+        Keyword.get(opts, :github_pr_number) |> redacted_optional(),
         run_id
       ]
     )
