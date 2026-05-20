@@ -276,6 +276,21 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
                "reason" => ":timeout"
              }
            }
+
+    secret_request_error =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:error, {:linear_api_request, %{authorization: "Bearer linear-secret-token", reason: "access_token=linear-secret-token"}}}
+        end
+      )
+
+    secret_request_output = Jason.decode!(secret_request_error["output"])
+
+    assert secret_request_output["error"]["reason"] =~ "Bearer [REDACTED]"
+    assert secret_request_output["error"]["reason"] =~ "access_token=[REDACTED]"
+    refute secret_request_output["error"]["reason"] =~ "linear-secret-token"
   end
 
   test "linear_graphql formats unexpected failures from the client" do
