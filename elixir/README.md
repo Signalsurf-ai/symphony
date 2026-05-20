@@ -79,6 +79,9 @@ Linear `AgentSessionEvent` and Discord Interactions enter Surfer directly. The e
 Linear project poller remains available only through a separate legacy/fallback workflow with
 Surfer platform ingress disabled.
 
+Surfer v0.1 does not poll Linear for normal tasks. Only Linear `AgentSessionEvent` webhooks and
+Discord webhooks start Surfer runs; the legacy project poller is not a Surfer trigger surface.
+
 Linear Agent sessions are the Surfer v0.1 trigger contract. Delegating an issue to Surfer,
 mentioning Surfer, or sending a follow-up agent prompt should create `AgentSessionEvent` webhooks
 that enter `/webhooks/linear/agent`. Ordinary Linear issue status changes, comments that do not

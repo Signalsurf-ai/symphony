@@ -734,6 +734,15 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert get_in(workflow, ["polling", "interval_ms"]) == 5000
   end
 
+  test "Surfer docs keep webhook triggers separate from legacy Linear polling" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+    workflow = File.read!(Path.expand("../../SURFER_WORKFLOW.example.md", __DIR__))
+
+    assert readme =~ "Surfer v0.1 does not poll Linear for normal tasks."
+    assert readme =~ ~r/Only Linear `AgentSessionEvent` webhooks and\s+Discord webhooks start Surfer runs/
+    assert workflow =~ "Do not turn this on to make Surfer watch Linear"
+  end
+
   test "Surfer docs require signed Discord message relay ingress" do
     workflow = File.read!(Path.expand("../../SURFER_WORKFLOW.example.md", __DIR__))
     readme = File.read!(Path.expand("../../README.md", __DIR__))
