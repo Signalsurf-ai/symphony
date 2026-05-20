@@ -576,6 +576,11 @@ codex:
 - Surfer ledger backup creation is available as `POST /api/v1/surfer/ledger/backup` only from
   loopback addresses. Backups are written under the ledger state directory's `backups/` folder and
   verified with SQLite integrity checks before the response is returned.
+  The v0.1 production policy is a daily ledger backup plus an extra backup before upgrades or
+  destructive maintenance. Copy the verified backup file off-host to operator-controlled encrypted
+  storage; the local `backups/` folder is only the first landing location, not the recovery plan.
+  Before release, restore one backup into a scratch path and verify lookup against the restored
+  SQLite file.
 
 ## Web dashboard
 

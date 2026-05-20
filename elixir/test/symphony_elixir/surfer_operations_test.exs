@@ -764,6 +764,13 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert readme =~ ~r/>=\s*80%/
   end
 
+  test "Surfer hosting docs choose a production ledger backup cadence and location" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "daily ledger backup"
+    assert readme =~ "off-host"
+  end
+
   test "Surfer docs list unsupported Linear-native features and GitHub ingress non-support" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 
