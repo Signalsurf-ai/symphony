@@ -1741,7 +1741,7 @@ defmodule SymphonyElixir.Orchestrator do
         %{request | context: Map.put(context, :company_brain_refs, refs)}
 
       {:error, reason} ->
-        Logger.warning("Failed to retrieve Surfer Company Brain context run_id=#{request.run_id}: #{inspect(reason)}")
+        Logger.warning("Failed to retrieve Surfer Company Brain context run_id=#{request.run_id}: #{safe_inspect(reason)}")
         request
     end
   end
@@ -2220,6 +2220,13 @@ defmodule SymphonyElixir.Orchestrator do
   defp retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and
       !todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+  end
+
+  defp safe_inspect(reason) do
+    reason
+    |> SecretRedactor.redact()
+    |> inspect()
+    |> SecretRedactor.redact_text()
   end
 
   defp dispatch_slots_available?(%Issue{} = issue, %State{} = state) do

@@ -240,6 +240,65 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert context.company_brain_refs == []
   end
 
+  test "orchestrator redacts Company Brain retrieval errors before logging" do
+    parent = self()
+    previous_fetch_fun = Application.get_env(:symphony_elixir, :surfer_company_brain_fetch_fun)
+    on_exit(fn -> restore_app_env(:surfer_company_brain_fetch_fun, previous_fetch_fun) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          github:
+            enabled: true
+            company_brain_repo: acme/company-brain
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    Application.put_env(:symphony_elixir, :surfer_company_brain_fetch_fun, fn _repo, _paths ->
+      {:error, {:github_down, "Authorization: Bearer brain-secret api_key=brain-api-key"}}
+    end)
+
+    orchestrator_name = Module.concat(__MODULE__, :CompanyBrainErrorRedactionOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+    end)
+
+    repositories = [
+      %{key: "web", repo: "acme/web", linear_team_ids: ["team-web"], company_brain_paths: ["meetings/"]}
+    ]
+
+    request = routed_linear_request!("issue-company-brain-error-1", "WEB-3", "team-web", repositories)
+
+    runner_fun = fn _issue, _recipient, opts ->
+      send(parent, {:runner_context, opts[:surfer_context]})
+      :ok
+    end
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        assert :ok = Orchestrator.dispatch_run(orchestrator_name, request, runner_fun: runner_fun)
+        assert_receive {:runner_context, context}, 1_000
+        assert context.company_brain_refs == []
+      end)
+
+    assert log =~ "Failed to retrieve Surfer Company Brain context"
+    assert log =~ "Authorization: Bearer [REDACTED]"
+    assert log =~ "api_key=[REDACTED]"
+    refute log =~ "brain-secret"
+    refute log =~ "brain-api-key"
+  end
+
   test "orchestrator direct dispatch refuses an already claimed Linear issue" do
     parent = self()
     orchestrator_name = Module.concat(__MODULE__, :ClaimedDispatchOrchestrator)
