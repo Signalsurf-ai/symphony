@@ -931,6 +931,72 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     send(runner_pid, :release_runner)
   end
 
+  test "orchestrator blocks repository writes already active in the shared ledger" do
+    db_path =
+      Path.join(
+        System.tmp_dir!(),
+        "surfer-repository-shared-conflict-#{System.unique_integer([:positive])}.sqlite3"
+      )
+
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    assert :ok = RunLedger.initialize(db_path)
+
+    repositories = [
+      %{key: "web", repo: "acme/web", linear_team_ids: ["team-web"]}
+    ]
+
+    existing = routed_linear_request!("issue-web-ledger-1", "WEB-LEDGER-1", "team-web", repositories)
+    incoming = routed_linear_request!("issue-web-ledger-2", "WEB-LEDGER-2", "team-web", repositories)
+
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, RunRequest.idempotency_key(existing), existing)
+
+    assert :ok = RunLedger.update_status(db_path, existing.run_id, "running")
+
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, RunRequest.idempotency_key(incoming), incoming)
+
+    parent = self()
+    orchestrator_name = Module.concat(__MODULE__, :RepositorySharedConflictOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      stop_orchestrator(pid)
+    end)
+
+    runner_fun = fn issue, _recipient, _opts ->
+      send(parent, {:unexpected_repo_shared_runner_started, issue.id})
+      :ok
+    end
+
+    assert {:error, {:repository_busy, "web"}} =
+             Orchestrator.dispatch_run(orchestrator_name, incoming, runner_fun: runner_fun)
+
+    refute_receive {:unexpected_repo_shared_runner_started, _issue_id}, 100
+
+    assert {:ok, run} = RunLedger.get_run(db_path, incoming.run_id)
+    assert run["status"] == "awaiting_input"
+    assert run["error_code"] == "repository_busy"
+    assert run["error_message"] =~ "web"
+  end
+
   test "orchestrator startup runs Surfer workspace retention cleanup from the ledger" do
     root = Path.join(System.tmp_dir!(), "surfer-startup-cleanup-#{System.unique_integer([:positive])}")
     workspace_root = Path.join(root, "workspaces")

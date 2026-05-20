@@ -42,6 +42,7 @@ defmodule SymphonyElixir.SurferLedgerTest do
              MapSet.new([
                "runs_linear_session_status_idx",
                "runs_discord_channel_status_idx",
+               "runs_repository_write_status_idx",
                "run_events_type_created_at_idx",
                "run_events_pending_write_lookup_idx"
              ]),

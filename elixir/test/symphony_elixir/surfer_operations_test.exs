@@ -766,6 +766,14 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert readme =~ ~r/redacted\s+operator lookup data/
   end
 
+  test "Surfer docs describe shared repository write coordination" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "shared SQLite checks"
+    assert readme =~ "same-repository write run"
+    assert readme =~ "outside the current"
+  end
+
   test "Surfer hosting docs include the PRD live-smoke release sample gate" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 

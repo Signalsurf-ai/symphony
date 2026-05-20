@@ -280,6 +280,51 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     end)
   end
 
+  @spec count_active_repository_write_runs(Path.t(), String.t(), keyword()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def count_active_repository_write_runs(db_path, repository_key, opts \\ [])
+      when is_binary(db_path) and is_binary(repository_key) do
+    exclude_run_id = Keyword.get(opts, :exclude_run_id)
+
+    with_conn(db_path, fn conn ->
+      case query_all(
+             conn,
+             """
+             WITH current_run AS (
+               SELECT created_at, rowid AS current_rowid
+               FROM runs
+               WHERE run_id = ?
+             )
+             SELECT COUNT(*) AS count
+             FROM runs
+             WHERE repository_key = ?
+               AND request_mode IN ('durable_task', 'issue_create')
+               AND (? IS NULL OR run_id != ?)
+               AND (
+                 status IN ('running', 'awaiting_review')
+                 OR (
+                   status = 'queued'
+                   AND ? IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM current_run)
+                   AND (
+                     created_at < (SELECT created_at FROM current_run)
+                     OR (
+                       created_at = (SELECT created_at FROM current_run)
+                       AND rowid < (SELECT current_rowid FROM current_run)
+                     )
+                   )
+                 )
+               );
+             """,
+             [exclude_run_id, repository_key, exclude_run_id, exclude_run_id, exclude_run_id]
+           ) do
+        {:ok, [%{"count" => count} | _]} when is_integer(count) -> {:ok, count}
+        {:ok, _rows} -> {:ok, 0}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
   @spec count_discord_user_runs_since(Path.t(), String.t(), String.t()) ::
           {:ok, non_neg_integer()} | {:error, term()}
   def count_discord_user_runs_since(db_path, user_id, since_iso8601)
@@ -1092,6 +1137,7 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     CREATE INDEX IF NOT EXISTS runs_linear_session_status_idx ON runs(source_platform, linear_agent_session_id, status);
     CREATE INDEX IF NOT EXISTS runs_linear_issue_status_idx ON runs(linear_issue_id, status);
     CREATE INDEX IF NOT EXISTS runs_discord_channel_status_idx ON runs(source_platform, discord_channel_id, status);
+    CREATE INDEX IF NOT EXISTS runs_repository_write_status_idx ON runs(repository_key, request_mode, status);
     CREATE INDEX IF NOT EXISTS run_events_run_id_idx ON run_events(run_id);
     CREATE INDEX IF NOT EXISTS run_events_external_id_idx ON run_events(external_id);
     CREATE INDEX IF NOT EXISTS run_events_type_created_at_idx ON run_events(event_type, created_at);

@@ -1918,15 +1918,40 @@ defmodule SymphonyElixir.Orchestrator do
   defp repository_write_busy?(%State{} = state, %RunRequest{} = request) do
     with true <- write_run?(request.request.mode),
          repository_key when is_binary(repository_key) <- repository_key(request.routing) do
-      Enum.any?(state.running, fn {_issue_id, running_entry} ->
-        running_entry
-        |> Map.get(:surfer_context, %{})
-        |> same_write_repository?(repository_key)
-      end)
+      state_repository_write_busy?(state, repository_key) or
+        ledger_repository_write_busy?(request.run_id, repository_key)
     else
       _ -> false
     end
   end
+
+  defp state_repository_write_busy?(%State{} = state, repository_key) when is_binary(repository_key) do
+    Enum.any?(state.running, fn {_issue_id, running_entry} ->
+      running_entry
+      |> Map.get(:surfer_context, %{})
+      |> same_write_repository?(repository_key)
+    end)
+  end
+
+  defp ledger_repository_write_busy?(run_id, repository_key)
+       when is_binary(run_id) and is_binary(repository_key) do
+    case surfer_ledger_path() do
+      {:ok, db_path} ->
+        case RunLedger.count_active_repository_write_runs(db_path, repository_key, exclude_run_id: run_id) do
+          {:ok, count} ->
+            count > 0
+
+          {:error, reason} ->
+            Logger.warning("Unable to check Surfer repository write coordination run_id=#{run_id} repository_key=#{repository_key}: #{safe_inspect(reason)}")
+            true
+        end
+
+      :disabled ->
+        false
+    end
+  end
+
+  defp ledger_repository_write_busy?(_run_id, _repository_key), do: false
 
   defp write_run?(mode) when mode in [:durable_task, :issue_create, "durable_task", "issue_create"], do: true
   defp write_run?(_mode), do: false

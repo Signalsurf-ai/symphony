@@ -180,7 +180,9 @@ notification webhook contract instead of re-enabling project polling as the defa
   redacted summaries. GitHub webhook ingress is intentionally not implemented for v0.1. Configured
   Company Brain path scopes are normalized before retrieval, and refs with absolute or
   traversal-looking paths are rejected before they enter prompt context.
-- Shared direct-dispatch claim checks so duplicate Linear issue runners are refused locally.
+- Shared direct-dispatch claim checks so duplicate Linear issue runners are refused locally, plus
+  shared SQLite checks that block a same-repository write run already active outside the current
+  orchestrator process.
 - Surfer prompt context injection for run ID, request mode, source platform,
   trigger, lineage IDs, routing, read/write constraints, a bounded redacted platform prompt-context
   excerpt, and scoped Company Brain provenance with background authority labeling when retrieved.
