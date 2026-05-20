@@ -47,6 +47,14 @@ defmodule SymphonyElixir.Surfer.SecretRedactor do
     |> String.replace(~r/\b(bearer\s+)[^\s<>"']+/i, "\\1#{@redacted}")
     |> redact_secret_assignments()
     |> String.replace(~r/xox[a-zA-Z]-[A-Za-z0-9-]+/, @redacted)
+    |> redact_standalone_token_prefixes()
+  end
+
+  defp redact_standalone_token_prefixes(value) do
+    value
+    |> String.replace(~r/\bgithub_pat_[A-Za-z0-9_]+/, @redacted)
+    |> String.replace(~r/\bgh[pousr]_[A-Za-z0-9_]{20,}/, @redacted)
+    |> String.replace(~r/\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{12,}/, @redacted)
   end
 
   defp redact_secret_assignments(value) do

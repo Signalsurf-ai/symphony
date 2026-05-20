@@ -1079,6 +1079,16 @@ defmodule SymphonyElixir.SurferOperationsTest do
     refute redacted =~ "json-password"
   end
 
+  test "secret redactor redacts standalone platform token prefixes" do
+    redacted =
+      SecretRedactor.redact_text("raw GitHub token github_pat_11ABCDEFG_secretvalue and raw OpenAI key sk-proj-openai-secretvalue")
+
+    assert redacted =~ "raw GitHub token [REDACTED]"
+    assert redacted =~ "raw OpenAI key [REDACTED]"
+    refute redacted =~ "github_pat_11ABCDEFG_secretvalue"
+    refute redacted =~ "sk-proj-openai-secretvalue"
+  end
+
   test "secret redactor preserves token usage counters while redacting credential tokens" do
     redacted =
       SecretRedactor.redact(%{
