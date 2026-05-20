@@ -26,6 +26,8 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     repository
     canonical_linear_issue_id
     linear_agent_session_id
+    actor_id
+    correlation_id
     discord_channel_id
     discord_message_id
     github_repo
@@ -135,6 +137,9 @@ defmodule SymphonyElixir.Surfer.RunLedger do
                request_mode,
                repository_key AS repository,
                status,
+               created_by,
+               actor_id,
+               correlation_id,
                linear_issue_id AS canonical_linear_issue_id,
                linear_agent_session_id,
                discord_channel_id,
@@ -801,6 +806,7 @@ defmodule SymphonyElixir.Surfer.RunLedger do
     now = Keyword.get(opts, :now, timestamp())
     status = Keyword.get(opts, :status, "queued")
     context = RunRequest.surfer_context(request)
+    actor_id = request_actor_id(request)
 
     execute(
       conn,
@@ -843,8 +849,8 @@ defmodule SymphonyElixir.Surfer.RunLedger do
         to_string(request.source.platform),
         to_string(request.request.mode),
         route_value(request, :repository),
-        request.request[:requested_by],
-        request.request[:requested_by],
+        actor_id,
+        actor_id,
         request.source[:natural_event_key] || request.source[:raw_event_id],
         request.lineage.linear[:issue_id],
         request.lineage.linear[:agent_session_id],
@@ -1088,6 +1094,10 @@ defmodule SymphonyElixir.Surfer.RunLedger do
 
   defp route_value(%RunRequest{} = request, key) do
     Map.get(request.routing, key) || Map.get(request.routing, to_string(key))
+  end
+
+  defp request_actor_id(%RunRequest{} = request) do
+    value(request.source, :actor_id) || value(request.request, :requested_by)
   end
 
   defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))

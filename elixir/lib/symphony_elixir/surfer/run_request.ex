@@ -58,6 +58,8 @@ defmodule SymphonyElixir.Surfer.RunRequest do
              platform: :linear,
              trigger_type: trigger_type,
              raw_event_id: Map.get(payload, "webhookId"),
+             actor_id: linear_actor_id(payload),
+             organization_id: Map.get(payload, "organizationId"),
              action: action,
              natural_event_key: natural_event_key
            },
@@ -107,6 +109,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
            platform: :discord,
            trigger_type: :message,
            raw_event_id: Map.get(message, "id"),
+           actor_id: get_in(message, ["author", "id"]),
            natural_event_key: natural_event_key
          },
          request: %{
@@ -227,6 +230,8 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       platform: source |> Map.get(:platform) |> to_string_or_nil(),
       trigger_type: source |> Map.get(:trigger_type) |> to_string_or_nil(),
       raw_event_id: Map.get(source, :raw_event_id),
+      actor_id: Map.get(source, :actor_id),
+      organization_id: Map.get(source, :organization_id),
       action: Map.get(source, :action),
       natural_event_key: Map.get(source, :natural_event_key)
     }
@@ -283,6 +288,14 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       primary_directive_text(prompt_context),
       map_text(agent_activity, "body"),
       map_text(agent_activity, "content")
+    ])
+  end
+
+  defp linear_actor_id(payload) do
+    first_present([
+      get_in(payload, ["actor", "id"]),
+      Map.get(payload, "actorId"),
+      Map.get(payload, "userId")
     ])
   end
 

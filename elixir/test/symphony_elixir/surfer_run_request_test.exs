@@ -10,6 +10,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
       "action" => "created",
       "organizationId" => "org-1",
       "webhookId" => "webhook-1",
+      "actor" => %{"id" => "user-1"},
       "agentSession" => %{
         "id" => "session-1",
         "promptContext" => "<issue identifier=\"ENG-1\">Fix it</issue>",
@@ -33,6 +34,8 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert request.run_id =~ "surf_run_"
     assert request.source.platform == :linear
     assert request.source.trigger_type == :delegation
+    assert request.source.actor_id == "user-1"
+    assert request.source.organization_id == "org-1"
     assert request.request.mode == :durable_task
     assert request.request.trigger_type == :delegation
     assert request.request.prompt_context == "<issue identifier=\"ENG-1\">Fix it</issue>"

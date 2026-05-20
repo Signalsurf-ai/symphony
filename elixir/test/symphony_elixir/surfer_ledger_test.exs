@@ -123,6 +123,35 @@ defmodule SymphonyElixir.SurferLedgerTest do
     refute payload_json =~ "structured-password"
   end
 
+  test "stores source actor and correlation fields for run lookup", %{db_path: db_path} do
+    assert {:ok, request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
+               "action" => "created",
+               "organizationId" => "org-1",
+               "webhookId" => "webhook-actor-1",
+               "actor" => %{"id" => "linear-user-1"},
+               "agentSession" => %{
+                 "id" => "session-actor-1",
+                 "issue" => %{
+                   "id" => "issue-actor-1",
+                   "identifier" => "ENG-ACTOR",
+                   "title" => "Preserve actor provenance",
+                   "state" => %{"name" => "Todo"}
+                 },
+                 "comment" => %{"id" => "comment-actor-1", "body" => "Please implement actor provenance."}
+               }
+             })
+
+    assert {:ok, %{status: :claimed}} =
+             RunLedger.claim_run(db_path, RunRequest.idempotency_key(request), request, platform: :linear)
+
+    assert {:ok, run} = RunLedger.get_run(db_path, request.run_id)
+    assert run["created_by"] == "linear-user-1"
+    assert run["actor_id"] == "linear-user-1"
+    assert run["correlation_id"] == "linear:session-actor-1:created:comment-actor-1:durable_task"
+  end
+
   test "writes redacted structured JSONL run logs when Surfer logs_dir is configured", %{db_path: db_path} do
     logs_dir = Path.join(System.tmp_dir!(), "surfer-run-logs-#{System.unique_integer([:positive])}")
     File.mkdir_p!(logs_dir)
