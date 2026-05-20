@@ -465,7 +465,7 @@ defmodule SymphonyElixir.SurferPlatformsTest do
          },
          %{
            path: "meetings/2026-05-02.md",
-           url: "https://github.com/acme/company-brain/blob/main/meetings/2026-05-02.md",
+           url: "https://github.com/acme/company-brain/blob/main/meetings/2026-05-02.md?access_token=brain-url-secret",
            summary: secret_summary
          }
        ]}
@@ -491,8 +491,10 @@ defmodule SymphonyElixir.SurferPlatformsTest do
 
     assert secret_ref.summary =~ "Authorization: Bearer [REDACTED]"
     assert secret_ref.summary =~ "api_key=[REDACTED]"
+    assert secret_ref.url =~ "access_token=[REDACTED]"
     refute secret_ref.summary =~ "brain-secret"
     refute secret_ref.summary =~ "brain-api-key"
+    refute secret_ref.url =~ "brain-url-secret"
   end
 
   test "GitHub pull request helper updates an existing head branch instead of creating duplicate PRs" do

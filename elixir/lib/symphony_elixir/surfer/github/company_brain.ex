@@ -22,10 +22,10 @@ defmodule SymphonyElixir.Surfer.GitHub.CompanyBrain do
   defp background_ref(ref, repo) when is_map(ref) do
     %{}
     |> put_present(:repo, repo)
-    |> put_present(:path, string_value(ref, :path))
-    |> put_present(:commit, string_value(ref, :commit))
-    |> put_present(:freshness, string_value(ref, :freshness))
-    |> put_present(:url, string_value(ref, :url))
+    |> put_present(:path, sanitized_string_value(ref, :path))
+    |> put_present(:commit, sanitized_string_value(ref, :commit))
+    |> put_present(:freshness, sanitized_string_value(ref, :freshness))
+    |> put_present(:url, sanitized_string_value(ref, :url))
     |> put_present(:summary, ref |> string_value(:summary) |> sanitize_summary())
     |> Map.put(:authority, :background)
     |> Map.put(:role, :background_context)
@@ -67,6 +67,12 @@ defmodule SymphonyElixir.Surfer.GitHub.CompanyBrain do
     end
   end
 
+  defp sanitized_string_value(ref, key) do
+    ref
+    |> string_value(key)
+    |> sanitize_provenance_value()
+  end
+
   defp put_present(map, _key, nil), do: map
   defp put_present(map, key, value), do: Map.put(map, key, value)
 
@@ -74,9 +80,12 @@ defmodule SymphonyElixir.Surfer.GitHub.CompanyBrain do
 
   defp sanitize_summary(summary) when is_binary(summary) do
     summary
-    |> SecretRedactor.redact_text()
+    |> sanitize_provenance_value()
     |> truncate_summary()
   end
+
+  defp sanitize_provenance_value(nil), do: nil
+  defp sanitize_provenance_value(value) when is_binary(value), do: SecretRedactor.redact_text(value)
 
   defp truncate_summary(summary) when is_binary(summary) do
     if String.length(summary) > @max_summary_length do

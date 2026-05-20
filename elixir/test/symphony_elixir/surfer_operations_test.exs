@@ -351,7 +351,12 @@ defmodule SymphonyElixir.SurferOperationsTest do
     """)
 
     assert :ok = RunLedger.update_status(db_path, request.run_id, "running")
-    assert :ok = RunLedger.update_status(db_path, request.run_id, "failed", error_code: "codex_error", error_message: "boom")
+
+    assert :ok =
+             RunLedger.update_status(db_path, request.run_id, "failed",
+               error_code: "codex_error",
+               error_message: "runner failed Authorization: Bearer lookup-error-token"
+             )
 
     assert :ok =
              RunLedger.record_event(db_path, request.run_id, %{
@@ -377,7 +382,13 @@ defmodule SymphonyElixir.SurferOperationsTest do
 
     assert {:ok, lookup} = Operator.lookup_run(db_path, request.run_id)
     assert lookup.run["id"] == request.run_id
-    assert lookup.latest_error == %{"code" => "codex_error", "message" => "boom"}
+
+    assert lookup.latest_error == %{
+             "code" => "codex_error",
+             "message" => "runner failed Authorization: Bearer [REDACTED]"
+           }
+
+    assert lookup.run["error_message"] == "runner failed Authorization: Bearer [REDACTED]"
 
     assert lookup.log_tail == [
              "2026-05-19 run_id=#{request.run_id} started",
@@ -390,6 +401,7 @@ defmodule SymphonyElixir.SurferOperationsTest do
     refute encoded =~ "raw platform request body"
     refute encoded =~ "secret-token"
     refute encoded =~ "super-secret-token"
+    refute encoded =~ "lookup-error-token"
     refute encoded =~ "other-token"
     assert encoded =~ "[REDACTED]"
   end
