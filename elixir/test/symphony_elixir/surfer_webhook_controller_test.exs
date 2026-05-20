@@ -4630,6 +4630,13 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute encoded =~ "secret-token"
     assert encoded =~ "[REDACTED]"
 
+    ipv4_mapped_local =
+      build_conn()
+      |> Map.put(:remote_ip, {0, 0, 0, 0, 0, 65_535, 32_512, 1})
+      |> get("/api/v1/surfer/runs/#{request.run_id}")
+
+    assert %{"run" => %{"id" => ^run_id}} = json_response(ipv4_mapped_local, 200)
+
     remote =
       build_conn()
       |> Map.put(:remote_ip, {203, 0, 113, 10})

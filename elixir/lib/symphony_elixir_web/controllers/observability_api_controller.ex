@@ -6,7 +6,7 @@ defmodule SymphonyElixirWeb.ObservabilityApiController do
   use Phoenix.Controller, formats: [:json]
 
   alias Plug.Conn
-  alias SymphonyElixirWeb.{Endpoint, Presenter}
+  alias SymphonyElixirWeb.{Endpoint, Loopback, Presenter}
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
@@ -57,12 +57,8 @@ defmodule SymphonyElixirWeb.ObservabilityApiController do
   end
 
   defp require_loopback(%Conn{remote_ip: remote_ip}) do
-    if loopback?(remote_ip), do: :ok, else: {:error, :forbidden}
+    if Loopback.loopback?(remote_ip), do: :ok, else: {:error, :forbidden}
   end
-
-  defp loopback?({127, _, _, _}), do: true
-  defp loopback?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
-  defp loopback?(_remote_ip), do: false
 
   defp orchestrator do
     Endpoint.config(:orchestrator) || SymphonyElixir.Orchestrator

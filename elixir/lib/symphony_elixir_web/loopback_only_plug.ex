@@ -8,6 +8,7 @@ defmodule SymphonyElixirWeb.LoopbackOnlyPlug do
   import Plug.Conn
 
   alias Plug.Conn
+  alias SymphonyElixirWeb.Loopback
 
   @json_error Jason.encode!(%{
                 error: %{
@@ -24,7 +25,7 @@ defmodule SymphonyElixirWeb.LoopbackOnlyPlug do
   @impl Plug
   @spec call(Conn.t(), keyword()) :: Conn.t()
   def call(%Conn{remote_ip: remote_ip} = conn, _opts) do
-    if loopback?(remote_ip) do
+    if Loopback.loopback?(remote_ip) do
       conn
     else
       forbid(conn)
@@ -46,8 +47,4 @@ defmodule SymphonyElixirWeb.LoopbackOnlyPlug do
   end
 
   defp json_path?(path), do: String.starts_with?(path, "/api/")
-
-  defp loopback?({127, _, _, _}), do: true
-  defp loopback?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
-  defp loopback?(_remote_ip), do: false
 end

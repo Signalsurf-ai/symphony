@@ -530,6 +530,13 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     ipv6_loopback_conn = %{build_conn() | remote_ip: {0, 0, 0, 0, 0, 0, 0, 1}}
     assert json_response(get(ipv6_loopback_conn, "/api/v1/state"), 200)["counts"] == %{"running" => 1, "retrying" => 1}
+
+    ipv4_mapped_loopback_conn = %{build_conn() | remote_ip: {0, 0, 0, 0, 0, 65_535, 32_512, 1}}
+
+    assert json_response(get(ipv4_mapped_loopback_conn, "/api/v1/state"), 200)["counts"] == %{
+             "running" => 1,
+             "retrying" => 1
+           }
   end
 
   test "phoenix observability api preserves snapshot timeout behavior" do

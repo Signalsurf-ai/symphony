@@ -24,6 +24,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   }
 
   alias SymphonyElixir.Surfer.Linear.{IssueCreator, Session, Webhook}
+  alias SymphonyElixirWeb.Loopback
 
   @claim_retry_delays_ms [10, 25]
   @default_linear_webhook_path "/webhooks/linear/agent"
@@ -1845,12 +1846,8 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   end
 
   defp require_loopback(%Conn{remote_ip: remote_ip}) do
-    if loopback?(remote_ip), do: :ok, else: {:error, :forbidden}
+    if Loopback.loopback?(remote_ip), do: :ok, else: {:error, :forbidden}
   end
-
-  defp loopback?({127, _, _, _}), do: true
-  defp loopback?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
-  defp loopback?(_remote_ip), do: false
 
   defp safe_inspect(reason) do
     reason
