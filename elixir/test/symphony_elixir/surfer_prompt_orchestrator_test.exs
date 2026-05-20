@@ -50,6 +50,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
       prompt: """
       Source action: {{ surfer.source.action }}
       Source event: {{ surfer.source.raw_event_id }}
+      Source received: {{ surfer.source.received_at }}
       Source key: {{ surfer.source.natural_event_key }}
       Lineage session: {{ surfer.lineage.linear.agent_session_id }}
       Lineage issue: {{ surfer.lineage.linear.issue_id }}
@@ -61,6 +62,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
                "type" => "AgentSessionEvent",
                "action" => "created",
                "webhookId" => "webhook-lineage-1",
+               "webhookTimestamp" => 1_700_000_000_000,
                "agentSession" => %{
                  "id" => "session-lineage-1",
                  "issue" => %{
@@ -82,6 +84,7 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     assert prompt =~ "Source action: created"
     assert prompt =~ "Source event: webhook-lineage-1"
+    assert prompt =~ "Source received: 2023-11-14T22:13:20.000Z"
     assert prompt =~ "Source key: linear:session-lineage-1:created:comment-lineage-1:durable_task"
     assert prompt =~ "Lineage session: session-lineage-1"
     assert prompt =~ "Lineage issue: issue-lineage-1"

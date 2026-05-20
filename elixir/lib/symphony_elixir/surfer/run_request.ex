@@ -60,6 +60,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
              raw_event_id: Map.get(payload, "webhookId"),
              actor_id: linear_actor_id(payload),
              organization_id: Map.get(payload, "organizationId"),
+             received_at: linear_received_at(payload),
              action: action,
              natural_event_key: natural_event_key
            },
@@ -110,6 +111,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
            trigger_type: :message,
            raw_event_id: Map.get(message, "id"),
            actor_id: get_in(message, ["author", "id"]),
+           received_at: timestamp_to_iso8601(Map.get(message, "timestamp")),
            natural_event_key: natural_event_key
          },
          request: %{
@@ -243,6 +245,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       raw_event_id: Map.get(source, :raw_event_id),
       actor_id: Map.get(source, :actor_id),
       organization_id: Map.get(source, :organization_id),
+      received_at: Map.get(source, :received_at),
       action: Map.get(source, :action),
       natural_event_key: Map.get(source, :natural_event_key)
     }
@@ -320,6 +323,27 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       Map.get(payload, "userId")
     ])
   end
+
+  defp linear_received_at(payload) do
+    payload
+    |> Map.get("webhookTimestamp")
+    |> timestamp_to_iso8601()
+  end
+
+  defp timestamp_to_iso8601(timestamp) when is_integer(timestamp) do
+    case DateTime.from_unix(timestamp, :millisecond) do
+      {:ok, datetime} -> DateTime.to_iso8601(datetime)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp timestamp_to_iso8601(timestamp) when is_binary(timestamp) do
+    timestamp
+    |> String.trim()
+    |> blank_to_nil()
+  end
+
+  defp timestamp_to_iso8601(_timestamp), do: nil
 
   defp classify_linear_request(directive) do
     directive = directive || ""

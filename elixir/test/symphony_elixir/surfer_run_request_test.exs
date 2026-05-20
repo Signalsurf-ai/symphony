@@ -10,6 +10,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
       "action" => "created",
       "organizationId" => "org-1",
       "webhookId" => "webhook-1",
+      "webhookTimestamp" => 1_700_000_000_000,
       "actor" => %{"id" => "user-1"},
       "agentSession" => %{
         "id" => "session-1",
@@ -36,6 +37,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert request.source.trigger_type == :delegation
     assert request.source.actor_id == "user-1"
     assert request.source.organization_id == "org-1"
+    assert request.source.received_at == "2023-11-14T22:13:20.000Z"
     assert request.request.mode == :durable_task
     assert request.request.trigger_type == :delegation
     assert request.request.prompt_context == "<issue identifier=\"ENG-1\">Fix it</issue>"
@@ -51,6 +53,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     context = RunRequest.surfer_context(request)
     assert context.trigger_type == "delegation"
     assert context.organization_id == "org-1"
+    assert context.source.received_at == "2023-11-14T22:13:20.000Z"
   end
 
   test "normalizes Linear mentions as scoped code questions unless implementation is requested" do
@@ -174,6 +177,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
       "guild_id" => "guild-1",
       "channel_id" => "channel-1",
       "thread_id" => "thread-1",
+      "timestamp" => "2026-05-19T10:30:00.000Z",
       "author" => %{"id" => "user-1"},
       "content" => "surfer question: where is routing handled?"
     }
@@ -181,6 +185,7 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert {:ok, question} = RunRequest.from_discord_message(code_question)
     assert question.source.platform == :discord
     assert question.source.natural_event_key == "discord_message:guild-1:channel-1:message-1:code_question"
+    assert question.source.received_at == "2026-05-19T10:30:00.000Z"
     assert question.request.mode == :code_question
     assert question.request.trigger_type == :message
     assert question.request.prompt_context == "surfer question: where is routing handled?"
