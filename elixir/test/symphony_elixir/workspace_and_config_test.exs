@@ -1331,4 +1331,51 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       File.rm_rf(test_root)
     end
   end
+
+  test "remote run-lock cleanup redacts secret-shaped ssh output" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-remote-run-lock-redaction-#{System.unique_integer([:positive])}"
+      )
+
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+    end)
+
+    try do
+      fake_ssh = Path.join(test_root, "ssh")
+
+      File.mkdir_p!(test_root)
+      System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+
+      File.write!(fake_ssh, """
+      #!/bin/sh
+      printf 'Authorization: Bearer remote-lock-secret\\napi_key=remote-api-secret\\n'
+      exit 17
+      """)
+
+      File.chmod!(fake_ssh, 0o755)
+      write_workflow_file!(Workflow.workflow_file_path())
+
+      log =
+        capture_log(fn ->
+          Workspace.remove_run_lock(
+            "/remote/home/workspaces/web/surf_run_remote_lock",
+            %{id: "issue-remote-lock", identifier: "ENG-LOCK", run_id: "surf_run_remote_lock"},
+            "worker-01"
+          )
+        end)
+
+      assert log =~ "run_id=surf_run_remote_lock"
+      assert log =~ "Authorization: Bearer [REDACTED]"
+      assert log =~ "api_key=[REDACTED]"
+      refute log =~ "remote-lock-secret"
+      refute log =~ "remote-api-secret"
+    after
+      File.rm_rf(test_root)
+    end
+  end
 end

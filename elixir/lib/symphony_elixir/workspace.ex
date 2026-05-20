@@ -139,7 +139,7 @@ defmodule SymphonyElixir.Workspace do
     case File.rm(run_lock_path(workspace)) do
       :ok -> :ok
       {:error, :enoent} -> :ok
-      {:error, reason} -> Logger.warning("Failed to remove run lock #{issue_log_context(issue_context)} workspace=#{workspace} reason=#{inspect(reason)}")
+      {:error, reason} -> Logger.warning("Failed to remove run lock #{issue_log_context(issue_context)} workspace=#{workspace} reason=#{safe_inspect(reason)}")
     end
   end
 
@@ -155,8 +155,8 @@ defmodule SymphonyElixir.Workspace do
 
     case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} -> :ok
-      {:ok, {output, status}} -> Logger.warning("Failed to remove remote run lock #{issue_log_context(issue_context)} worker_host=#{worker_host} status=#{status} output=#{inspect(output)}")
-      {:error, reason} -> Logger.warning("Failed to remove remote run lock #{issue_log_context(issue_context)} worker_host=#{worker_host} reason=#{inspect(reason)}")
+      {:ok, {output, status}} -> Logger.warning("Failed to remove remote run lock #{issue_log_context(issue_context)} worker_host=#{worker_host} status=#{status} output=#{safe_inspect(output)}")
+      {:error, reason} -> Logger.warning("Failed to remove remote run lock #{issue_log_context(issue_context)} worker_host=#{worker_host} reason=#{safe_inspect(reason)}")
     end
   end
 
@@ -619,5 +619,18 @@ defmodule SymphonyElixir.Workspace do
       end
 
     "issue_id=#{issue_id || "n/a"} issue_identifier=#{issue_identifier || "issue"}#{run_context}"
+  end
+
+  defp safe_inspect(reason) when is_binary(reason) do
+    reason
+    |> SecretRedactor.redact_text()
+    |> inspect()
+  end
+
+  defp safe_inspect(reason) do
+    reason
+    |> SecretRedactor.redact()
+    |> inspect()
+    |> SecretRedactor.redact_text()
   end
 end
