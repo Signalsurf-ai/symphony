@@ -2,7 +2,7 @@ defmodule SymphonyElixir.SurferLedgerTest do
   use SymphonyElixir.TestSupport
 
   alias Exqlite.Sqlite3
-  alias SymphonyElixir.Surfer.{RunLedger, RunLog, RunRequest}
+  alias SymphonyElixir.Surfer.{RunLedger, RunLog, RunRequest, SecretRedactor}
 
   setup do
     db_path =
@@ -16,6 +16,16 @@ defmodule SymphonyElixir.SurferLedgerTest do
     assert :ok = RunLedger.initialize(db_path)
 
     %{db_path: db_path}
+  end
+
+  test "redacts assignment-shaped authorization credentials" do
+    redacted =
+      SecretRedactor.redact_text("Authorization=Bot discord-bot-secret authorization => Bearer linear-bearer-secret")
+
+    assert redacted =~ "Authorization=Bot [REDACTED]"
+    assert redacted =~ "authorization => Bearer [REDACTED]"
+    refute redacted =~ "discord-bot-secret"
+    refute redacted =~ "linear-bearer-secret"
   end
 
   test "initializes composite indexes for run and outbox coordination", %{db_path: db_path} do

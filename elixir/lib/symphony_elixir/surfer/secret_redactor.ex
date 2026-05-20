@@ -34,7 +34,7 @@ defmodule SymphonyElixir.Surfer.SecretRedactor do
   def redact_text(value) when is_binary(value) do
     value
     |> String.replace(~r{(discord(?:app)?\.com/api/v\d+/webhooks/[^/\s<>"']+/)[^/\s<>"']+}i, "\\1#{@redacted}")
-    |> String.replace(~r/\b(authorization\s*:\s*(?:bearer|bot)\s+)[^\s<>"']+/i, "\\1#{@redacted}")
+    |> String.replace(~r/\b(authorization\s*(?::|=>|=)\s*(?:bearer|bot)\s+)[^\s<>"']+/i, "\\1#{@redacted}")
     |> String.replace(~r/\b(bearer\s+)[^\s<>"']+/i, "\\1#{@redacted}")
     |> String.replace(secret_assignment_regex(), "\\1#{@redacted}")
     |> String.replace(~r/xox[a-zA-Z]-[A-Za-z0-9-]+/, @redacted)
