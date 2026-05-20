@@ -8,6 +8,8 @@ defmodule SymphonyElixir.Surfer.RunLedger do
   alias SymphonyElixir.Surfer.{Metrics, RunLog, RunRequest, SecretRedactor}
 
   @terminal_statuses MapSet.new(["completed", "failed", "cancelled"])
+  @redacted "[REDACTED]"
+  @raw_platform_payload_keys MapSet.new(["raw", "platformpayload", "eventpayload", "platformevent", "interactionpayload", "rawpayload"])
   @stale_pending_write_after_ms 10 * 60 * 1_000
   @status_transitions %{
     "queued" => MapSet.new(["running", "awaiting_input", "cancelled", "failed"]),
@@ -1116,7 +1118,29 @@ defmodule SymphonyElixir.Surfer.RunLedger do
   defp encode_payload(payload) do
     payload
     |> SecretRedactor.redact()
+    |> redact_raw_platform_payloads()
     |> Jason.encode!()
+  end
+
+  defp redact_raw_platform_payloads(value) when is_map(value) do
+    Map.new(value, fn {key, nested} ->
+      if raw_platform_payload_key?(key) do
+        {key, @redacted}
+      else
+        {key, redact_raw_platform_payloads(nested)}
+      end
+    end)
+  end
+
+  defp redact_raw_platform_payloads(value) when is_list(value), do: Enum.map(value, &redact_raw_platform_payloads/1)
+  defp redact_raw_platform_payloads(value), do: value
+
+  defp raw_platform_payload_key?(key) do
+    key
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]/, "")
+    |> then(&MapSet.member?(@raw_platform_payload_keys, &1))
   end
 
   defp drop_pending_write_transient_fields(payload) when is_map(payload) do

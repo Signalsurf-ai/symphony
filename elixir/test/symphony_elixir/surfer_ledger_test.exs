@@ -191,6 +191,42 @@ defmodule SymphonyElixir.SurferLedgerTest do
     refute line =~ "raw webhook payload"
   end
 
+  test "redacts raw platform payloads before SQLite event persistence", %{db_path: db_path} do
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-raw-platform-payload",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question"
+             })
+
+    assert :ok = RunLedger.upsert_run(db_path, request, status: "queued")
+
+    assert :ok =
+             RunLedger.record_event(db_path, request.run_id, %{
+               event_type: "received",
+               platform: "discord",
+               external_id: "message-raw-platform-payload",
+               payload: %{
+                 "platform_payload" => %{"body" => "raw webhook body must not persist"},
+                 "nested" => %{
+                   "interaction_payload" => %{"token" => "interaction-token-secret"},
+                   "ok" => true
+                 }
+               }
+             })
+
+    assert {:ok, events} = RunLedger.list_events(db_path, request.run_id)
+    payload_json = events |> Enum.find(&(&1["event_type"] == "received")) |> Map.fetch!("payload_json")
+    payload = Jason.decode!(payload_json)
+
+    assert payload["platform_payload"] == "[REDACTED]"
+    assert payload["nested"]["interaction_payload"] == "[REDACTED]"
+    assert payload["nested"]["ok"] == true
+    refute payload_json =~ "raw webhook body"
+    refute payload_json =~ "interaction-token-secret"
+  end
+
   test "run log appends structured lines and rejects unsafe run ids" do
     logs_dir = Path.join(System.tmp_dir!(), "surfer-run-log-direct-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf(logs_dir) end)
