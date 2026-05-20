@@ -1079,6 +1079,39 @@ defmodule SymphonyElixir.SurferOperationsTest do
     refute redacted =~ "json-password"
   end
 
+  test "secret redactor preserves token usage counters while redacting credential tokens" do
+    redacted =
+      SecretRedactor.redact(%{
+        "token" => "credential-token",
+        "access_token" => "credential-access-token",
+        "usage" => %{
+          "input_tokens" => 8,
+          "output_tokens" => 3,
+          "total_tokens" => 11,
+          "tokenUsage" => %{"totalTokens" => 11},
+          "total_token_usage" => %{"input_tokens" => 8}
+        }
+      })
+
+    assert redacted["token"] == "[REDACTED]"
+    assert redacted["access_token"] == "[REDACTED]"
+    assert redacted["usage"]["input_tokens"] == 8
+    assert redacted["usage"]["output_tokens"] == 3
+    assert redacted["usage"]["total_tokens"] == 11
+    assert redacted["usage"]["tokenUsage"]["totalTokens"] == 11
+    assert redacted["usage"]["total_token_usage"]["input_tokens"] == 8
+
+    text =
+      SecretRedactor.redact_text(~s({"usage":{"input_tokens":8,"total_tokens":11,"token":"text-token","access_token":"text-access-token"}}))
+
+    assert text =~ ~s("input_tokens":8)
+    assert text =~ ~s("total_tokens":11)
+    assert text =~ ~s("token":"[REDACTED]")
+    assert text =~ ~s("access_token":"[REDACTED]")
+    refute text =~ "text-token"
+    refute text =~ "text-access-token"
+  end
+
   test "workspace cleanup preserves active runs and removes expired terminal workspaces", %{db_path: db_path} do
     workspace_root =
       Path.join(
