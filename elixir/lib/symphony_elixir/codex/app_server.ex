@@ -123,7 +123,7 @@ defmodule SymphonyElixir.Codex.AppServer do
              }}
 
           {:error, reason} ->
-            Logger.warning("Codex session ended with error for #{issue_context(issue)}#{log_context} session_id=#{session_id}: #{inspect(reason)}")
+            Logger.warning("Codex session ended with error for #{issue_context(issue)}#{log_context} session_id=#{session_id}: #{safe_inspect(reason)}")
 
             emit_message(
               on_message,
@@ -139,7 +139,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         end
 
       {:error, reason} ->
-        Logger.error("Codex session failed for #{issue_context(issue)}#{log_context}: #{inspect(reason)}")
+        Logger.error("Codex session failed for #{issue_context(issue)}#{log_context}: #{safe_inspect(reason)}")
         emit_message(on_message, :startup_failed, %{reason: reason}, metadata)
         {:error, reason}
     end
@@ -963,7 +963,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         {:error, {:response_error, response_payload}}
 
       {:ok, %{} = other} ->
-        Logger.debug("Ignoring message while waiting for response#{log_context}: #{inspect(other)}")
+        Logger.debug("Ignoring message while waiting for response#{log_context}: #{safe_inspect(other)}")
         with_timeout_response(port, request_id, timeout_ms, "", log_context)
 
       {:error, _} ->
@@ -987,6 +987,13 @@ defmodule SymphonyElixir.Codex.AppServer do
         Logger.debug("Codex #{stream_label}#{log_context} output: #{text}")
       end
     end
+  end
+
+  defp safe_inspect(term, opts \\ []) do
+    term
+    |> SecretRedactor.redact()
+    |> inspect(opts)
+    |> SecretRedactor.redact_text()
   end
 
   defp protocol_message_candidate?(data) do
