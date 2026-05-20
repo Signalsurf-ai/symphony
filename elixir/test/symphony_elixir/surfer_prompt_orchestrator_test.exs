@@ -498,6 +498,67 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     send(runner_pid, :release_runner)
   end
 
+  test "orchestrator ledger claim check warnings include run_id when known" do
+    db_path =
+      Path.join(
+        System.tmp_dir!(),
+        "surfer-ledger-claim-warning-dir-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    orchestrator_name = Module.concat(__MODULE__, :LedgerClaimWarningContextOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+    end)
+
+    assert {:ok, request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
+               "action" => "created",
+               "agentSession" => %{
+                 "id" => "session-ledger-claim-warning",
+                 "issue" => %{
+                   "id" => "issue-ledger-claim-warning",
+                   "identifier" => "ENG-WARN",
+                   "title" => "Warn with run id",
+                   "state" => %{"name" => "Todo"}
+                 }
+               }
+             })
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        runner_fun = fn _issue, _recipient, _opts -> :ok end
+
+        assert {:error, _reason} =
+                 Orchestrator.dispatch_run(orchestrator_name, request, runner_fun: runner_fun)
+      end)
+
+    assert log =~ "Unable to check Surfer ledger claim"
+    assert log =~ "run_id=#{request.run_id}"
+    assert log =~ "linear_issue_id=issue-ledger-claim-warning"
+  end
+
   test "orchestrator refuses a ledger-claimed Linear issue after restart" do
     db_path =
       Path.join(
@@ -989,6 +1050,10 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
     assert {:error, {:invalid_workflow_config, _message}} = Config.validate!()
+
+    send(pid, :run_poll_cycle)
+    Process.sleep(25)
+    assert Process.alive?(pid)
 
     send(runner_pid, :release_runner)
     assert_receive {:linear_activity, "session-invalid-config", :response, body}, 1_000

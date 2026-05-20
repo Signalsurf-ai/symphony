@@ -993,7 +993,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
   defp handle_lifecycle_control(%RunRequest{request: %{action: :cancel, run_id: run_id}}) when is_binary(run_id) do
     with {:ok, db_path} <- surfer_ledger_path(),
-         :ok <- Lifecycle.cancel(db_path, run_id, actor: "discord", reason: "cancelled from Discord"),
+         :ok <- Lifecycle.cancel(db_path, run_id, actor: "discord", reason: "cancelled from Discord", notify_source?: false),
          :ok <- cancel_active_run(run_id, actor: "discord", reason: "cancelled from Discord") do
       {:ok, "Surfer run #{run_id} cancelled."}
     end

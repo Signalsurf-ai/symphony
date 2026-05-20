@@ -21,7 +21,12 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
 
     with {:ok, run} <- RunLedger.get_run(db_path, run_id),
          :ok <- RunLedger.validate_status_transition(db_path, run_id, "cancelled") do
-      write_status = report_cancelled_to_source(db_path, run, reason)
+      write_status =
+        if Keyword.get(opts, :notify_source?, true) do
+          report_cancelled_to_source(db_path, run, reason)
+        else
+          %{}
+        end
 
       RunLedger.update_status(db_path, run_id, "cancelled",
         reason: reason,

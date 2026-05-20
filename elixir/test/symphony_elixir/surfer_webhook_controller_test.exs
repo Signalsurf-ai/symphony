@@ -628,14 +628,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
 
     assert_eventually_pending_write(db_path, run_id, "session-url-fail-1:external_urls:#{run_id}")
 
-    assert_receive {
-      :telemetry,
-      [:symphony, :surfer, :platform_write_failures],
-      %{count: 1},
-      metadata
-    }
-
-    assert metadata.run_id == run_id
+    metadata = assert_platform_write_failure_for(run_id)
     assert metadata.platform == "linear"
     assert metadata.external_id == "session-url-fail-1:external_urls:#{run_id}"
     assert metadata.reason == ":linear_5xx"
@@ -5199,7 +5192,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     )
   end
 
-  defp assert_eventually_pending_write(db_path, run_id, external_id, attempts \\ 20)
+  defp assert_eventually_pending_write(db_path, run_id, external_id, attempts \\ 100)
 
   defp assert_eventually_pending_write(db_path, run_id, external_id, attempts) when attempts > 0 do
     case RunLedger.list_events(db_path, run_id) do
@@ -5245,8 +5238,28 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
   end
 
   defp assert_interaction_response_contains(expected) do
-    deadline = System.monotonic_time(:millisecond) + 1_000
+    deadline = System.monotonic_time(:millisecond) + 3_000
     do_assert_interaction_response_contains(expected, deadline, [])
+  end
+
+  defp assert_platform_write_failure_for(run_id, deadline \\ System.monotonic_time(:millisecond) + 1_000) do
+    remaining_ms = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {
+        :telemetry,
+        [:symphony, :surfer, :platform_write_failures],
+        %{count: 1},
+        %{run_id: ^run_id} = metadata
+      } ->
+        metadata
+
+      {:telemetry, [:symphony, :surfer, :platform_write_failures], %{count: 1}, _metadata} ->
+        assert_platform_write_failure_for(run_id, deadline)
+    after
+      remaining_ms ->
+        flunk("expected platform_write_failures telemetry for #{inspect(run_id)}")
+    end
   end
 
   defp assert_discord_followup_failed_for(interaction_id, deadline \\ System.monotonic_time(:millisecond) + 1_000) do

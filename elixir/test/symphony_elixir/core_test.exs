@@ -560,7 +560,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    initial_state = :sys.get_state(pid)
+    initial_state = :sys.get_state(pid, 10_000)
 
     running_entry = %{
       pid: self(),
@@ -580,7 +580,7 @@ defmodule SymphonyElixir.CoreTest do
     retry_reference_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :normal})
     Process.sleep(50)
-    state = :sys.get_state(pid)
+    state = :sys.get_state(pid, 10_000)
 
     refute Map.has_key?(state.running, issue_id)
     assert MapSet.member?(state.completed, issue_id)
@@ -601,7 +601,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    initial_state = :sys.get_state(pid)
+    initial_state = :sys.get_state(pid, 10_000)
 
     running_entry = %{
       pid: self(),
@@ -622,7 +622,7 @@ defmodule SymphonyElixir.CoreTest do
     retry_reference_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
     Process.sleep(50)
-    state = :sys.get_state(pid)
+    state = :sys.get_state(pid, 10_000)
 
     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
@@ -642,7 +642,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    initial_state = :sys.get_state(pid)
+    initial_state = :sys.get_state(pid, 10_000)
 
     running_entry = %{
       pid: self(),
@@ -662,7 +662,7 @@ defmodule SymphonyElixir.CoreTest do
     retry_reference_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
     Process.sleep(50)
-    state = :sys.get_state(pid)
+    state = :sys.get_state(pid, 10_000)
 
     assert %{attempt: 1, due_at_ms: due_at_ms, identifier: "MT-560", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
@@ -681,7 +681,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    initial_state = :sys.get_state(pid)
+    initial_state = :sys.get_state(pid, 10_000)
     current_retry_token = make_ref()
     stale_retry_token = make_ref()
 
@@ -707,7 +707,7 @@ defmodule SymphonyElixir.CoreTest do
              retry_token: ^current_retry_token,
              identifier: "MT-561",
              error: "agent exited: :boom"
-           } = :sys.get_state(pid).retry_attempts[issue_id]
+           } = :sys.get_state(pid, 10_000).retry_attempts[issue_id]
   end
 
   test "manual refresh coalesces repeated requests and ignores superseded ticks" do

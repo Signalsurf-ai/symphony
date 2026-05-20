@@ -495,8 +495,17 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp reconcile_stalled_running_issues(%State{} = state) do
-    timeout_ms = Config.settings!().codex.stall_timeout_ms
+    case Config.settings() do
+      {:ok, config} ->
+        reconcile_stalled_running_issues(state, config.codex.stall_timeout_ms)
 
+      {:error, reason} ->
+        Logger.debug("Skipping stalled issue reconciliation because config is unavailable: #{safe_inspect(reason)}")
+        state
+    end
+  end
+
+  defp reconcile_stalled_running_issues(%State{} = state, timeout_ms) do
     cond do
       timeout_ms <= 0 ->
         state
@@ -1894,7 +1903,7 @@ defmodule SymphonyElixir.Orchestrator do
         false
 
       {:error, reason} ->
-        Logger.warning("Unable to check Surfer ledger claim for linear_issue_id=#{issue_id}: #{inspect(reason)}")
+        Logger.warning("Unable to check Surfer ledger claim run_id=#{run_id} linear_issue_id=#{issue_id}: #{safe_inspect(reason)}")
         false
     end
   end
