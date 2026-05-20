@@ -42,6 +42,16 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
            ]
   end
 
+  test "unsupported tool names are redacted before returning to Codex" do
+    response = DynamicTool.execute("access_token=unsupported-secret-token", %{})
+
+    assert response["success"] == false
+    assert response["output"] =~ "Unsupported dynamic tool"
+    assert response["output"] =~ "[REDACTED]"
+    refute response["output"] =~ "unsupported-secret-token"
+    assert response["contentItems"] == [%{"type" => "inputText", "text" => response["output"]}]
+  end
+
   test "linear_graphql returns successful GraphQL responses as tool text" do
     test_pid = self()
 

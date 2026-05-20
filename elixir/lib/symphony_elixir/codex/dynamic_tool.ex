@@ -36,7 +36,7 @@ defmodule SymphonyElixir.Codex.DynamicTool do
       other ->
         failure_response(%{
           "error" => %{
-            "message" => "Unsupported dynamic tool: #{inspect(other)}.",
+            "message" => "Unsupported dynamic tool: #{safe_inspect(other)}.",
             "supportedTools" => supported_tool_names()
           }
         })
