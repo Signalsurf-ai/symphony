@@ -752,6 +752,83 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert body =~ request.run_id
   end
 
+  test "orchestrator includes Company Brain provenance in final activity when retrieved" do
+    parent = self()
+    previous_fetch_fun = Application.get_env(:symphony_elixir, :surfer_company_brain_fetch_fun)
+    previous_activity_fun = Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun)
+
+    on_exit(fn ->
+      restore_app_env(:surfer_company_brain_fetch_fun, previous_fetch_fun)
+      restore_app_env(:surfer_linear_session_activity_fun, previous_activity_fun)
+    end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          github:
+            enabled: true
+            company_brain_repo: acme/company-brain
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+
+    Application.put_env(:symphony_elixir, :surfer_company_brain_fetch_fun, fn repo, paths ->
+      send(parent, {:company_brain_fetch, repo, paths})
+
+      {:ok,
+       [
+         %{
+           path: "meetings/2026-05-01.md",
+           url: "https://github.com/acme/company-brain/blob/main/meetings/2026-05-01.md",
+           summary: "Raw meeting note that should not appear in the final activity"
+         }
+       ]}
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_session_activity_fun, fn session_id, type, body ->
+      send(parent, {:linear_activity, session_id, type, body})
+      :ok
+    end)
+
+    orchestrator_name = Module.concat(__MODULE__, :CompanyBrainFinalActivityOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: GenServer.stop(pid)
+    end)
+
+    repositories = [
+      %{key: "web", repo: "acme/web", linear_team_ids: ["team-web"], company_brain_paths: ["meetings/"]}
+    ]
+
+    request = routed_linear_request!("issue-company-brain-final-1", "WEB-1", "team-web", repositories)
+
+    runner_fun = fn _issue, _recipient, _opts ->
+      send(parent, :runner_completed)
+      :ok
+    end
+
+    assert :ok = Orchestrator.dispatch_run(orchestrator_name, request, runner_fun: runner_fun)
+    assert_receive {:company_brain_fetch, "acme/company-brain", ["meetings"]}
+    assert_receive :runner_completed, 1_000
+    assert_receive {:linear_activity, "session-issue-company-brain-final-1", :response, body}, 1_000
+
+    assert body =~ request.run_id
+    assert body =~ "Company Brain context used"
+    assert body =~ "acme/company-brain:meetings/2026-05-01.md"
+    assert body =~ "https://github.com/acme/company-brain/blob/main/meetings/2026-05-01.md"
+    assert body =~ "background only"
+    refute body =~ "Raw meeting note"
+  end
+
   test "orchestrator still reports Linear final activity when runtime config is temporarily invalid" do
     parent = self()
     previous_fun = Application.get_env(:symphony_elixir, :surfer_linear_session_activity_fun)

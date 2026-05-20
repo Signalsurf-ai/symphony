@@ -176,6 +176,8 @@ notification webhook contract instead of re-enabling project polling as the defa
 - Surfer prompt context injection for run ID, request mode, source platform,
   trigger, lineage IDs, routing, read/write constraints, a bounded redacted platform prompt-context
   excerpt, and scoped Company Brain provenance with background authority labeling when retrieved.
+- Final Linear/Discord status summaries include provenance-only Company Brain refs when retrieved;
+  raw summaries stay out of final activity bodies.
 
 Live workspace installation still requires real Linear, Discord, GitHub, and OpenAI/Codex
 credentials. The test suite covers deterministic local contracts; it does not fake a successful

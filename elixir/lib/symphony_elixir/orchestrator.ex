@@ -13,7 +13,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Linear.Issue
-  alias SymphonyElixir.Surfer.{Budget, Metrics, RunLedger, WorkspaceLifecycle}
+  alias SymphonyElixir.Surfer.{Budget, Metrics, RunLedger, SecretRedactor, WorkspaceLifecycle}
   alias SymphonyElixir.Surfer.Discord.Notifier, as: DiscordNotifier
   alias SymphonyElixir.Surfer.GitHub.CompanyBrain
   alias SymphonyElixir.Surfer.Linear.Session, as: LinearSession
@@ -21,6 +21,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
+  @company_brain_final_provenance_limit 5
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @empty_codex_totals %{
@@ -618,7 +619,7 @@ defmodule SymphonyElixir.Orchestrator do
 
     case reason do
       :normal ->
-        body = "Surfer run #{run_id} completed."
+        body = final_status_body("Surfer run #{run_id} completed.", surfer_context)
         linear_status = post_linear_session_activity(running_entry, session_id, :response, body)
         discord_status = post_discord_status(running_entry, surfer_context, body)
 
@@ -629,7 +630,7 @@ defmodule SymphonyElixir.Orchestrator do
         )
 
       _ ->
-        body = "Surfer run #{run_id} failed: #{inspect(reason)}"
+        body = final_status_body("Surfer run #{run_id} failed: #{inspect(reason)}", surfer_context)
         linear_status = post_linear_session_activity(running_entry, session_id, :error, body)
         discord_status = post_discord_status(running_entry, surfer_context, body)
 
@@ -643,6 +644,66 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp post_surfer_completion(_running_entry, _reason), do: :ok
+
+  defp final_status_body(base_body, surfer_context) when is_binary(base_body) do
+    case company_brain_provenance_lines(surfer_context) do
+      [] ->
+        base_body
+
+      lines ->
+        base_body <>
+          "\n\nCompany Brain context used (background only; not authoritative):\n" <>
+          Enum.join(lines, "\n")
+    end
+  end
+
+  defp company_brain_provenance_lines(surfer_context) do
+    refs =
+      case context_value(surfer_context, :company_brain_refs) do
+        refs when is_list(refs) -> refs
+        _other -> []
+      end
+
+    total_count = length(refs)
+
+    lines =
+      refs
+      |> Enum.take(@company_brain_final_provenance_limit)
+      |> Enum.map(&company_brain_provenance_line/1)
+      |> Enum.reject(&is_nil/1)
+
+    cond do
+      lines == [] ->
+        []
+
+      total_count > @company_brain_final_provenance_limit ->
+        lines ++ ["- #{total_count - @company_brain_final_provenance_limit} more Company Brain refs omitted"]
+
+      true ->
+        lines
+    end
+  end
+
+  defp company_brain_provenance_line(ref) when is_map(ref) do
+    repo = context_value(ref, :repo)
+    path = context_value(ref, :path)
+    url = context_value(ref, :url)
+
+    label =
+      cond do
+        is_binary(repo) and is_binary(path) -> "#{repo}:#{path}"
+        is_binary(path) -> path
+        is_binary(url) -> url
+        true -> nil
+      end
+
+    if is_binary(label) do
+      url_suffix = if is_binary(url) and url != label, do: " (#{url})", else: ""
+      SecretRedactor.redact_text("- #{label}#{url_suffix}")
+    end
+  end
+
+  defp company_brain_provenance_line(_ref), do: nil
 
   defp post_surfer_cancelled(running_entry, reason) when is_map(running_entry) do
     run_id = running_entry_run_id(running_entry)
@@ -1981,6 +2042,8 @@ defmodule SymphonyElixir.Orchestrator do
   defp payload_error(payload) when is_map(payload) do
     Map.get(payload, :error) || Map.get(payload, "error")
   end
+
+  defp context_value(context, key), do: Map.get(context, key) || Map.get(context, to_string(key))
 
   defp run_id_from_context(%{run_id: run_id}), do: run_id
   defp run_id_from_context(%{"run_id" => run_id}), do: run_id
