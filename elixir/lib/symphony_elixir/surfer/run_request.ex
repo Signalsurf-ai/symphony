@@ -232,11 +232,15 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   defp prompt_safe_request(request) when is_map(request) do
     %{
       mode: request |> Map.get(:mode) |> to_string_or_nil(),
-      trigger_type: request |> Map.get(:trigger_type) |> to_string_or_nil()
+      trigger_type: request |> Map.get(:trigger_type) |> to_string_or_nil(),
+      title: request |> request_value(:title) |> sanitize_prompt_context(),
+      body: request |> request_value(:body) |> sanitize_prompt_context()
     }
   end
 
   defp prompt_safe_request(_request), do: %{}
+
+  defp request_value(request, key) when is_map(request), do: Map.get(request, key) || Map.get(request, to_string(key))
 
   defp prompt_safe_source(source) when is_map(source) do
     %{

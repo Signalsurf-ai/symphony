@@ -6,7 +6,7 @@ defmodule SymphonyElixir.Surfer.RunLog do
   alias SymphonyElixir.Surfer.SecretRedactor
 
   @redacted "[REDACTED]"
-  @prompt_body_keys MapSet.new(["body", "content", "description", "prompt", "promptcontext", "rawbody", "rawpayload"])
+  @prompt_body_keys MapSet.new(["body", "content", "description", "prompt", "promptcontext", "rawbody", "rawpayload", "title"])
   @raw_platform_payload_keys MapSet.new(["raw", "platformpayload", "eventpayload", "platformevent", "interactionpayload"])
 
   @spec append(Path.t(), String.t(), map()) :: :ok | {:error, term()}

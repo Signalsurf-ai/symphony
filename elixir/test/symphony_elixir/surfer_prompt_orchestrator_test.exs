@@ -124,6 +124,34 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert prompt =~ "Routing confidence: source_hint"
   end
 
+  test "prompt builder exposes redacted request title and body" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: """
+      Request title: {{ surfer.request.title }}
+      Request body: {{ surfer.request.body }}
+      """
+    )
+
+    assert {:ok, request} =
+             RunRequest.from_discord_message(%{
+               "id" => "message-request-body-1",
+               "guild_id" => "guild-1",
+               "channel_id" => "channel-1",
+               "content" => "surfer question: inspect Authorization: Bearer request-body-secret"
+             })
+
+    issue = %Issue{id: "issue-request-body-1", identifier: "REQ-BODY", title: "Request body", state: "Todo"}
+
+    prompt =
+      PromptBuilder.build_prompt(issue,
+        surfer_context: RunRequest.surfer_context(request)
+      )
+
+    assert prompt =~ "Request title: surfer question: inspect Authorization: Bearer [REDACTED]"
+    assert prompt =~ "Request body: surfer question: inspect Authorization: Bearer [REDACTED]"
+    refute prompt =~ "request-body-secret"
+  end
+
   test "orchestrator direct dispatch converts a normalized run request into an agent run" do
     parent = self()
     handler_id = {__MODULE__, self(), :orchestrator_runtime_metrics}

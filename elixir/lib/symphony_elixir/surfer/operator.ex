@@ -10,7 +10,7 @@ defmodule SymphonyElixir.Surfer.Operator do
   @runtime_pause_key :surfer_runtime_pause
   @log_tail_lines 50
   @redacted "[REDACTED]"
-  @prompt_body_keys MapSet.new(["body", "content", "description", "prompt", "promptcontext", "rawbody", "rawpayload"])
+  @prompt_body_keys MapSet.new(["body", "content", "description", "prompt", "promptcontext", "rawbody", "rawpayload", "title"])
   @raw_platform_payload_keys MapSet.new(["raw", "payload", "platformpayload", "eventpayload", "platformevent", "interactionpayload"])
 
   @spec lookup_run(Path.t(), String.t()) :: {:ok, map()} | {:error, term()}
