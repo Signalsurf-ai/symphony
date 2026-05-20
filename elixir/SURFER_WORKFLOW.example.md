@@ -21,7 +21,6 @@ polling:
   # Surfer platform ingress disabled. Do not turn this on to make Surfer watch Linear
   # for task changes; configure Linear to send AgentSessionEvent webhooks instead.
   enabled: false
-  interval_ms: 5000
 workspace:
   root: $SURFER_WORKSPACE_ROOT
 hooks:

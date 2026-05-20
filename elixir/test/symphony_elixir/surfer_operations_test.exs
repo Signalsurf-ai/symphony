@@ -738,12 +738,12 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert ["${SURFER_HOST_BIND:-127.0.0.1}:4000:4000"] = get_in(compose, ["services", "surfer", "ports"])
   end
 
-  test "Surfer workflow disables the legacy Linear project poller by default" do
+  test "Surfer workflow disables the legacy Linear project poller without configuring a poll cadence" do
     assert {:ok, %{config: workflow}} =
              SymphonyElixir.Workflow.load(Path.expand("../../SURFER_WORKFLOW.example.md", __DIR__))
 
     assert get_in(workflow, ["polling", "enabled"]) == false
-    assert get_in(workflow, ["polling", "interval_ms"]) == 5000
+    refute Map.has_key?(workflow["polling"], "interval_ms")
   end
 
   test "Surfer docs keep webhook triggers separate from legacy Linear polling" do
