@@ -68,6 +68,8 @@ surfer:
       enabled: true
       interactions_path: /webhooks/discord/interactions
       message_ingress_path: /webhooks/discord/message
+      message_ingress_secret_env: DISCORD_MESSAGE_INGRESS_SECRET
+      message_ingress_secret_next_env: DISCORD_MESSAGE_INGRESS_SECRET_NEXT
       public_key_env: DISCORD_PUBLIC_KEY
       public_key_next_env: DISCORD_PUBLIC_KEY_NEXT
       bot_token_env: DISCORD_BOT_TOKEN

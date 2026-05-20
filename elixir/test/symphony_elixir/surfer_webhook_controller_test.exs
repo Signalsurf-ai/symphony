@@ -1606,6 +1606,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         platforms:
           discord:
             enabled: true
+            message_ingress_secret: relay-secret
             allowed_guilds:
               - guild-1
       ---
@@ -1615,13 +1616,19 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
 
     WorkflowStore.force_reload()
 
-    conn =
-      post(build_conn(), "/webhooks/discord/message", %{
+    body =
+      Jason.encode!(%{
         "id" => "message-1",
         "guild_id" => "guild-2",
         "channel_id" => "channel-1",
         "content" => "surfer question"
       })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_message_relay_signature_headers(body, "relay-secret")
+      |> post("/webhooks/discord/message", body)
 
     assert json_response(conn, 403) == %{
              "error" => %{"code" => "unauthorized_guild", "message" => "Discord guild is not allowed"}
@@ -1664,6 +1671,52 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute_receive {:unexpected_dispatch, _run_id}, 100
   end
 
+  test "Discord message ingress requires a relay signature before dispatch" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        platforms:
+          discord:
+            enabled: true
+            message_ingress_secret: relay-secret
+            allowed_guilds:
+              - guild-1
+            allowed_channels:
+              - channel-1
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        "id" => "message-missing-relay-signature",
+        "guild_id" => "guild-1",
+        "channel_id" => "channel-1",
+        "content" => "surfer question"
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/webhooks/discord/message", body)
+
+    assert json_response(conn, 401)["error"]["code"] == "missing_discord_message_relay_signature"
+    refute_receive {:unexpected_dispatch, _run_id}, 100
+  end
+
   test "Discord webhook rejects messages from unconfigured channels" do
     File.write!(
       Workflow.workflow_file_path(),
@@ -1675,6 +1728,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         platforms:
           discord:
             enabled: true
+            message_ingress_secret: relay-secret
             allowed_guilds:
               - guild-1
             allowed_channels:
@@ -1692,13 +1746,19 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       :ok
     end)
 
-    conn =
-      post(build_conn(), "/webhooks/discord/message", %{
+    body =
+      Jason.encode!(%{
         "id" => "message-channel-denied",
         "guild_id" => "guild-1",
         "channel_id" => "channel-denied",
         "content" => "surfer question"
       })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_message_relay_signature_headers(body, "relay-secret")
+      |> post("/webhooks/discord/message", body)
 
     assert json_response(conn, 403) == %{
              "error" => %{"code" => "unauthorized_channel", "message" => "Discord channel is not allowed"}
@@ -1718,6 +1778,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         platforms:
           discord:
             enabled: true
+            message_ingress_secret: relay-secret
       ---
       Prompt
       """
@@ -1731,12 +1792,18 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       :ok
     end)
 
-    conn =
-      post(build_conn(), "/webhooks/discord/message", %{
+    body =
+      Jason.encode!(%{
         "guild_id" => "guild-1",
         "channel_id" => "channel-1",
         "content" => "surfer question"
       })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_message_relay_signature_headers(body, "relay-secret")
+      |> post("/webhooks/discord/message", body)
 
     assert json_response(conn, 400)["error"]["code"] == "missing_discord_message_id"
     refute_receive {:unexpected_dispatch, _run_id}, 100
@@ -1754,6 +1821,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           discord:
             enabled: true
             message_ingress_path: /internal/surfer/discord/message
+            message_ingress_secret: relay-secret
             allowed_guilds:
               - guild-1
             allowed_channels:
@@ -1771,13 +1839,19 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       :ok
     end)
 
-    custom_conn =
-      post(build_conn(), "/internal/surfer/discord/message", %{
+    custom_body =
+      Jason.encode!(%{
         "id" => "message-custom-path-1",
         "guild_id" => "guild-1",
         "channel_id" => "channel-1",
         "content" => "surfer question"
       })
+
+    custom_conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_message_relay_signature_headers(custom_body, "relay-secret")
+      |> post("/internal/surfer/discord/message", custom_body)
 
     assert %{"ok" => true, "run_id" => run_id} = json_response(custom_conn, 202)
     assert_receive {:discord_dispatch, ^run_id}
@@ -3583,6 +3657,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         platforms:
           discord:
             enabled: true
+            message_ingress_secret: relay-secret
             allowed_guilds:
               - guild-1
           linear:
@@ -3612,13 +3687,19 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
       :ok
     end)
 
-    conn =
-      post(build_conn(), "/webhooks/discord/message", %{
+    body =
+      Jason.encode!(%{
         "id" => "message-1",
         "guild_id" => "guild-1",
         "channel_id" => "channel-1",
         "content" => "surfer create issue: Fix routing"
       })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_message_relay_signature_headers(body, "relay-secret")
+      |> post("/webhooks/discord/message", body)
 
     assert json_response(conn, 202)["mode"] == "issue_create"
     assert_receive {:issue_attrs, attrs}
@@ -4753,6 +4834,16 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     conn
     |> put_req_header("x-signature-timestamp", timestamp)
     |> put_req_header("x-signature-ed25519", signature)
+  end
+
+  defp put_discord_message_relay_signature_headers(conn, body, secret, timestamp \\ Integer.to_string(System.system_time(:second))) do
+    signature =
+      :crypto.mac(:hmac, :sha256, secret, timestamp <> "." <> body)
+      |> Base.encode16(case: :lower)
+
+    conn
+    |> put_req_header("x-surfer-discord-relay-timestamp", timestamp)
+    |> put_req_header("x-surfer-discord-relay-signature", "sha256=#{signature}")
   end
 
   defp write_discord_workflow!(db_path) do

@@ -361,6 +361,10 @@ defmodule SymphonyElixir.Config.Schema do
         field(:enabled, :boolean, default: false)
         field(:interactions_path, :string, default: "/webhooks/discord/interactions")
         field(:message_ingress_path, :string, default: "/webhooks/discord/message")
+        field(:message_ingress_secret, :string)
+        field(:message_ingress_secret_env, :string)
+        field(:message_ingress_secret_next, :string)
+        field(:message_ingress_secret_next_env, :string)
         field(:public_key, :string)
         field(:public_key_env, :string)
         field(:public_key_next, :string)
@@ -389,6 +393,10 @@ defmodule SymphonyElixir.Config.Schema do
             :enabled,
             :interactions_path,
             :message_ingress_path,
+            :message_ingress_secret,
+            :message_ingress_secret_env,
+            :message_ingress_secret_next,
+            :message_ingress_secret_next_env,
             :public_key,
             :public_key_env,
             :public_key_next,
@@ -778,6 +786,16 @@ defmodule SymphonyElixir.Config.Schema do
     discord_bot_token =
       resolve_secret_alias(platforms.discord.bot_token, platforms.discord.bot_token_env, nil)
 
+    discord_message_ingress_secret =
+      resolve_secret_alias(platforms.discord.message_ingress_secret, platforms.discord.message_ingress_secret_env, nil)
+
+    discord_message_ingress_secret_next =
+      resolve_secret_alias(
+        platforms.discord.message_ingress_secret_next,
+        platforms.discord.message_ingress_secret_next_env,
+        nil
+      )
+
     allowed_guilds =
       resolve_env_list_alias(platforms.discord.allowed_guilds, platforms.discord.allowed_guilds_env)
 
@@ -787,6 +805,8 @@ defmodule SymphonyElixir.Config.Schema do
     discord = %{
       platforms.discord
       | report_channel: discord_report_channel,
+        message_ingress_secret: discord_message_ingress_secret,
+        message_ingress_secret_next: discord_message_ingress_secret_next,
         public_key: discord_public_key,
         public_key_next: discord_public_key_next,
         bot_token: discord_bot_token,

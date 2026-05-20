@@ -7,6 +7,8 @@ defmodule SymphonyElixir.SurferConfigTest do
     previous_discord_public_key = System.get_env("DISCORD_PUBLIC_KEY")
     previous_discord_public_key_next = System.get_env("DISCORD_PUBLIC_KEY_NEXT")
     previous_discord_bot_token = System.get_env("DISCORD_BOT_TOKEN")
+    previous_discord_message_ingress_secret = System.get_env("DISCORD_MESSAGE_INGRESS_SECRET")
+    previous_discord_message_ingress_secret_next = System.get_env("DISCORD_MESSAGE_INGRESS_SECRET_NEXT")
     previous_linear_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
     previous_linear_secret_next = System.get_env("LINEAR_WEBHOOK_SECRET_NEXT")
     previous_linear_token = System.get_env("LINEAR_ACCESS_TOKEN")
@@ -22,6 +24,8 @@ defmodule SymphonyElixir.SurferConfigTest do
       restore_env("DISCORD_PUBLIC_KEY", previous_discord_public_key)
       restore_env("DISCORD_PUBLIC_KEY_NEXT", previous_discord_public_key_next)
       restore_env("DISCORD_BOT_TOKEN", previous_discord_bot_token)
+      restore_env("DISCORD_MESSAGE_INGRESS_SECRET", previous_discord_message_ingress_secret)
+      restore_env("DISCORD_MESSAGE_INGRESS_SECRET_NEXT", previous_discord_message_ingress_secret_next)
       restore_env("LINEAR_WEBHOOK_SECRET", previous_linear_secret)
       restore_env("LINEAR_WEBHOOK_SECRET_NEXT", previous_linear_secret_next)
       restore_env("LINEAR_ACCESS_TOKEN", previous_linear_token)
@@ -37,6 +41,8 @@ defmodule SymphonyElixir.SurferConfigTest do
     System.put_env("DISCORD_PUBLIC_KEY", "public-key")
     System.put_env("DISCORD_PUBLIC_KEY_NEXT", "next-public-key")
     System.put_env("DISCORD_BOT_TOKEN", "bot-token")
+    System.put_env("DISCORD_MESSAGE_INGRESS_SECRET", "relay-secret")
+    System.put_env("DISCORD_MESSAGE_INGRESS_SECRET_NEXT", "relay-secret-next")
     System.put_env("LINEAR_WEBHOOK_SECRET", "linear-secret")
     System.put_env("LINEAR_WEBHOOK_SECRET_NEXT", "linear-secret-next")
     System.put_env("LINEAR_ACCESS_TOKEN", "linear-token")
@@ -69,6 +75,8 @@ defmodule SymphonyElixir.SurferConfigTest do
             enabled: true
             interactions_path: /webhooks/discord/interactions
             message_ingress_path: /webhooks/discord/message
+            message_ingress_secret: $DISCORD_MESSAGE_INGRESS_SECRET
+            message_ingress_secret_next: $DISCORD_MESSAGE_INGRESS_SECRET_NEXT
             public_key: $DISCORD_PUBLIC_KEY
             public_key_next: $DISCORD_PUBLIC_KEY_NEXT
             bot_token: $DISCORD_BOT_TOKEN
@@ -127,6 +135,8 @@ defmodule SymphonyElixir.SurferConfigTest do
     assert settings.surfer.platforms.discord.enabled == true
     assert settings.surfer.platforms.discord.interactions_path == "/webhooks/discord/interactions"
     assert settings.surfer.platforms.discord.message_ingress_path == "/webhooks/discord/message"
+    assert settings.surfer.platforms.discord.message_ingress_secret == "relay-secret"
+    assert settings.surfer.platforms.discord.message_ingress_secret_next == "relay-secret-next"
     assert settings.surfer.platforms.discord.public_key == "public-key"
     assert settings.surfer.platforms.discord.public_key_next == "next-public-key"
     assert settings.surfer.platforms.discord.bot_token == "bot-token"
@@ -197,6 +207,7 @@ defmodule SymphonyElixir.SurferConfigTest do
       "SURFER_TEST_LINEAR_TEAM_ID" => "team-1",
       "SURFER_TEST_LINEAR_PROJECT_ID" => "project-1",
       "SURFER_TEST_DISCORD_PUBLIC_KEY" => "discord-public-key",
+      "SURFER_TEST_DISCORD_MESSAGE_SECRET" => "discord-message-secret",
       "SURFER_TEST_DISCORD_BOT_TOKEN" => "discord-bot-token",
       "SURFER_TEST_DISCORD_ALLOWED_GUILDS" => "guild-1,guild-2",
       "SURFER_TEST_DISCORD_ALLOWED_CHANNELS" => "channel-1, channel-2",
@@ -229,6 +240,7 @@ defmodule SymphonyElixir.SurferConfigTest do
           discord:
             enabled: true
             public_key_env: SURFER_TEST_DISCORD_PUBLIC_KEY
+            message_ingress_secret_env: SURFER_TEST_DISCORD_MESSAGE_SECRET
             bot_token_env: SURFER_TEST_DISCORD_BOT_TOKEN
             allowed_guilds_env: SURFER_TEST_DISCORD_ALLOWED_GUILDS
             allowed_channels_env: SURFER_TEST_DISCORD_ALLOWED_CHANNELS
@@ -249,6 +261,7 @@ defmodule SymphonyElixir.SurferConfigTest do
     assert settings.surfer.platforms.linear.team_id == "team-1"
     assert settings.surfer.platforms.linear.project_id == "project-1"
     assert settings.surfer.platforms.discord.public_key == "discord-public-key"
+    assert settings.surfer.platforms.discord.message_ingress_secret == "discord-message-secret"
     assert settings.surfer.platforms.discord.bot_token == "discord-bot-token"
     assert settings.surfer.platforms.discord.allowed_guilds == ["guild-1", "guild-2"]
     assert settings.surfer.platforms.discord.allowed_channels == ["channel-1", "channel-2"]

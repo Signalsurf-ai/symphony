@@ -734,6 +734,15 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert get_in(workflow, ["polling", "interval_ms"]) == 5000
   end
 
+  test "Surfer docs require signed Discord message relay ingress" do
+    workflow = File.read!(Path.expand("../../SURFER_WORKFLOW.example.md", __DIR__))
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert workflow =~ "message_ingress_secret_env: DISCORD_MESSAGE_INGRESS_SECRET"
+    assert readme =~ "x-surfer-discord-relay-signature"
+    assert readme =~ "HMAC-SHA256"
+  end
+
   test "Surfer hosting docs require disk encryption decision and release-note risk callout" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 

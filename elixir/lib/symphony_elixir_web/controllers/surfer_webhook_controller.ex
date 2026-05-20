@@ -137,10 +137,18 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     started_at = System.monotonic_time(:millisecond)
     discord = Config.settings!().surfer.platforms.discord
     path = configured_path(discord.message_ingress_path, @default_discord_message_path)
+    signature = conn |> get_req_header("x-surfer-discord-relay-signature") |> List.first()
+    timestamp = conn |> get_req_header("x-surfer-discord-relay-timestamp") |> List.first()
+    secrets = discord_message_ingress_secret_slots(discord)
+    signature_opts = [max_age_seconds: discord.signature_max_age_seconds]
 
     response_conn =
       with :ok <- require_configured_path(conn, path),
            :ok <- require_platform_enabled(discord.enabled),
+           :ok <- require_secret(discord.enabled, secrets, :missing_discord_message_ingress_secret),
+           {:ok, raw_body} <- require_raw_body(conn),
+           :ok <-
+             Discord.Ingress.verify_message_signature(raw_body, signature, timestamp, secrets, signature_opts),
            {:ok, request} <-
              Discord.Ingress.normalize_message(params,
                allowed_guilds: discord.allowed_guilds,
@@ -171,6 +179,35 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
         {:error, :platform_disabled} ->
           not_found_response(conn)
+
+        {:error, :missing_discord_message_ingress_secret} ->
+          error_response(conn, 503, "missing_discord_message_ingress_secret", "Discord message relay secret is required when message ingress is enabled")
+
+        {:error, :missing_secret} ->
+          error_response(conn, 503, "missing_discord_message_ingress_secret", "Discord message relay secret is required when message ingress is enabled")
+
+        {:error, :missing_raw_body} ->
+          error_response(conn, 400, "missing_raw_body", "Raw request body is required for Discord message relay signature verification")
+
+        {:error, :missing_signature} ->
+          record_signature_failure(:discord_message, :missing_signature)
+          error_response(conn, 401, "missing_discord_message_relay_signature", "Discord message relay signature is required")
+
+        {:error, :missing_timestamp} ->
+          record_signature_failure(:discord_message, :missing_timestamp)
+          error_response(conn, 401, "missing_discord_message_relay_timestamp", "Discord message relay timestamp is required")
+
+        {:error, :invalid_signature} ->
+          record_signature_failure(:discord_message, :invalid_signature)
+          error_response(conn, 401, "invalid_discord_message_relay_signature", "Discord message relay signature is invalid")
+
+        {:error, :stale_timestamp} ->
+          record_signature_failure(:discord_message, :stale_timestamp)
+          error_response(conn, 401, "stale_discord_message_relay_timestamp", "Discord message relay timestamp is stale")
+
+        {:error, :invalid_timestamp} ->
+          record_signature_failure(:discord_message, :invalid_timestamp)
+          error_response(conn, 401, "invalid_discord_message_relay_timestamp", "Discord message relay timestamp is invalid")
 
         {:error, {:unauthorized_guild, _guild_id}} ->
           error_response(conn, 403, "unauthorized_guild", "Discord guild is not allowed")
@@ -1693,6 +1730,14 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     [
       {:current, Map.get(linear, :webhook_secret)},
       {:next, Map.get(linear, :webhook_secret_next)}
+    ]
+    |> Enum.filter(fn {_slot, secret} -> is_binary(secret) and String.trim(secret) != "" end)
+  end
+
+  defp discord_message_ingress_secret_slots(discord) do
+    [
+      {:current, Map.get(discord, :message_ingress_secret)},
+      {:next, Map.get(discord, :message_ingress_secret_next)}
     ]
     |> Enum.filter(fn {_slot, secret} -> is_binary(secret) and String.trim(secret) != "" end)
   end

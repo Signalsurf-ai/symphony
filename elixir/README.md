@@ -120,8 +120,10 @@ notification webhook contract instead of re-enabling project polling as the defa
   caps.
 - Discord message ingress at `/webhooks/discord/message` for gateway adapters or internal relays,
   active only when `surfer.platforms.discord.enabled: true`, with
-  `surfer.platforms.discord.message_ingress_path` and the same configured guild/channel allowlists
-  enforced before dispatch.
+  `surfer.platforms.discord.message_ingress_path`, HMAC-SHA256 relay verification, and the same
+  configured guild/channel allowlists enforced before dispatch. Relay callers must sign
+  `x-surfer-discord-relay-timestamp <> "." <> raw_body` with `DISCORD_MESSAGE_INGRESS_SECRET` and
+  send the hex digest as `x-surfer-discord-relay-signature`.
 - Discord idempotency keys require real interaction IDs, or real guild/channel/message IDs for
   message-relay ingress.
 - Discord-to-Linear issue creation through Linear `issueCreate`.
@@ -301,6 +303,7 @@ Fill in at minimum:
 - `LINEAR_PROJECT_SLUG`
 - `LINEAR_TEAM_ID`
 - `DISCORD_PUBLIC_KEY`
+- `DISCORD_MESSAGE_INGRESS_SECRET` if `/webhooks/discord/message` is exposed for a gateway or relay
 - `DISCORD_BOT_TOKEN`
 - `DISCORD_APPLICATION_ID` for one-time `/surfer` command registration
 - `DISCORD_GUILD_ID`
@@ -401,7 +404,10 @@ Discord:
 7. Set `DISCORD_GUILD_ID` for command registration and `DISCORD_REPORT_CHANNEL_ID` for the
    default report/routing channel. Set `DISCORD_ALLOWED_GUILDS` and `DISCORD_ALLOWED_CHANNELS`
    to comma-separated allowlists for Discord ingress. If a gateway adapter or internal relay calls
-   `/webhooks/discord/message`, keep those allowlists scoped to the same approved Discord surfaces.
+   `/webhooks/discord/message`, set `DISCORD_MESSAGE_INGRESS_SECRET` and sign each raw JSON body
+   with HMAC-SHA256 using `x-surfer-discord-relay-timestamp` and
+   `x-surfer-discord-relay-signature`; keep the allowlists scoped to the same approved Discord
+   surfaces.
 
 GitHub:
 
