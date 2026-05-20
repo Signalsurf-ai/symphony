@@ -2266,15 +2266,19 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
         }
       })
 
+    command_timestamp = Integer.to_string(System.system_time(:second))
+    expected_received_at = DateTime.from_unix!(String.to_integer(command_timestamp), :second) |> DateTime.to_iso8601()
+
     command =
       build_conn()
       |> put_req_header("content-type", "application/json")
-      |> put_discord_signature_headers(command_body, private_key)
+      |> put_discord_signature_headers(command_body, private_key, command_timestamp)
       |> post("/webhooks/discord/interactions", command_body)
 
     assert json_response(command, 200)["type"] == 5
     assert_receive {:discord_dispatch, request}
     assert request.source.trigger_type == :slash_command
+    assert request.source.received_at == expected_received_at
     assert request.request.mode == :code_question
   end
 

@@ -25,7 +25,7 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
          :ok <- authorize("channel", Map.get(interaction, "channel_id"), allowed_channels),
          {:ok, interaction_id} <- required_interaction_id(Map.get(interaction, "id")),
          :ok <- validate_command(command),
-         {:ok, request} <- interaction |> interaction_message(command) |> RunRequest.from_discord_message() do
+         {:ok, request} <- interaction |> interaction_message(command, opts) |> RunRequest.from_discord_message() do
       request = apply_command(request, command)
       request = put_in(request.request[:trigger_type], :slash_command)
 
@@ -81,13 +81,14 @@ defmodule SymphonyElixir.Surfer.Discord.Interaction do
 
   defp validate_command(_command), do: :ok
 
-  defp interaction_message(interaction, command) do
+  defp interaction_message(interaction, command, opts) do
     %{
       "id" => Map.get(interaction, "id"),
       "guild_id" => Map.get(interaction, "guild_id"),
       "channel_id" => Map.get(interaction, "channel_id"),
       "thread_id" => get_in(interaction, ["channel", "thread_metadata", "id"]),
       "author" => %{"id" => user_id(interaction)},
+      "timestamp" => Keyword.get(opts, :received_at),
       "content" => command.prompt || command.run_id || ""
     }
   end

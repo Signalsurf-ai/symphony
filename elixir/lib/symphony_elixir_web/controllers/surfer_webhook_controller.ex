@@ -398,7 +398,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
         if Discord.Interaction.ping?(params) do
           json(conn, %{type: 1})
         else
-          handle_discord_interaction(conn, params, discord, received_at_ms)
+          handle_discord_interaction(conn, params, discord, received_at_ms, timestamp)
         end
 
       {:error, :missing_signature} ->
@@ -426,11 +426,12 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
     end
   end
 
-  defp handle_discord_interaction(conn, params, discord, received_at_ms) do
+  defp handle_discord_interaction(conn, params, discord, received_at_ms, signature_timestamp) do
     with {:ok, request} <-
            Discord.Interaction.to_run_request(params,
              allowed_guilds: discord.allowed_guilds,
-             allowed_channels: discord.allowed_channels
+             allowed_channels: discord.allowed_channels,
+             received_at: discord_signature_received_at(signature_timestamp)
            ),
          :ok <- require_secret(discord.enabled, discord.bot_token, :missing_discord_bot_token) do
       raw_message = put_discord_interaction_retry_deadline(params, received_at_ms)
@@ -483,6 +484,17 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   defp discord_interaction_error_response(conn, reason) do
     error_response(conn, 400, "unsupported_discord_interaction", safe_inspect(reason))
   end
+
+  defp discord_signature_received_at(timestamp) when is_binary(timestamp) do
+    with {seconds, ""} <- Integer.parse(timestamp),
+         {:ok, datetime} <- DateTime.from_unix(seconds, :second) do
+      DateTime.to_iso8601(datetime)
+    else
+      _reason -> nil
+    end
+  end
+
+  defp discord_signature_received_at(_timestamp), do: nil
 
   defp claim_and_dispatch_discord_interaction(conn, request, raw_message, discord) do
     case claim_run(request, :discord) do

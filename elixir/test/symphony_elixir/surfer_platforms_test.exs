@@ -82,12 +82,14 @@ defmodule SymphonyElixir.SurferPlatformsTest do
     assert {:ok, request} =
              Discord.Interaction.to_run_request(interaction,
                allowed_guilds: ["guild-1"],
-               allowed_channels: ["channel-1"]
+               allowed_channels: ["channel-1"],
+               received_at: "2026-05-19T10:30:00Z"
              )
 
     assert request.source.platform == :discord
     assert request.source.trigger_type == :slash_command
     assert request.source.raw_event_id == "interaction-1"
+    assert request.source.received_at == "2026-05-19T10:30:00Z"
     assert request.request.mode == :code_question
     assert request.request.body == "where is routing handled?"
     assert request.lineage.discord.interaction_id == "interaction-1"
