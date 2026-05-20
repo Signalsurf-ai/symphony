@@ -1066,6 +1066,19 @@ defmodule SymphonyElixir.SurferOperationsTest do
     refute redacted =~ "linear-secret"
   end
 
+  test "secret redactor redacts JSON-style quoted secret assignments" do
+    redacted =
+      SecretRedactor.redact_text(~s({"token":"json-token","webhook_secret":"json-webhook-secret","api_key":"json-api-key","password":"json-password"}))
+
+    assert redacted ==
+             ~s({"token":"[REDACTED]","webhook_secret":"[REDACTED]","api_key":"[REDACTED]","password":"[REDACTED]"})
+
+    refute redacted =~ "json-token"
+    refute redacted =~ "json-webhook-secret"
+    refute redacted =~ "json-api-key"
+    refute redacted =~ "json-password"
+  end
+
   test "workspace cleanup preserves active runs and removes expired terminal workspaces", %{db_path: db_path} do
     workspace_root =
       Path.join(
