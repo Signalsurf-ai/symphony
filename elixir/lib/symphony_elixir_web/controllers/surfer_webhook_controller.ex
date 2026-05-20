@@ -66,6 +66,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
            {:ok, raw_body} <- require_raw_body(conn),
            :ok <- Webhook.verify(raw_body, signature, secrets),
            {:ok, request} <- RunRequest.from_linear_agent_session_event(params),
+           :ok <- require_secret(linear.enabled, linear.access_token, :missing_linear_access_token),
            {:ok, response} <- claim_run(request, :linear),
            {:ok, response} <- maybe_dispatch_linear(response, request) do
         json(conn |> put_status(202), response)
@@ -81,6 +82,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
         {:error, :missing_secret} ->
           error_response(conn, 503, "missing_linear_webhook_secret", "Linear webhook secret is required when Linear ingress is enabled")
+
+        {:error, :missing_linear_access_token} ->
+          error_response(conn, 503, "missing_linear_access_token", "Linear access token is required when Linear ingress is enabled")
 
         {:error, :missing_raw_body} ->
           error_response(conn, 400, "missing_raw_body", "Raw request body is required for webhook signature verification")
@@ -1706,6 +1710,7 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
   defp require_secret(false, _value, _error), do: :ok
   defp require_secret(true, values, _error) when is_list(values) and values != [], do: :ok
+  defp require_secret(true, value, _error) when is_binary(value) and value != "", do: :ok
   defp require_secret(true, _value, error), do: {:error, error}
 
   defp require_platform_enabled(true), do: :ok

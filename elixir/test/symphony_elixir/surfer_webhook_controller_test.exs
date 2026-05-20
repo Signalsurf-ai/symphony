@@ -99,6 +99,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -177,6 +178,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -231,6 +233,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
             enabled: true
             webhook_path: /internal/surfer/linear
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -283,6 +286,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
         repositories:
           - key: web
             repo: acme/web
@@ -363,6 +367,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
         repositories:
           - key: web
             repo: acme/web
@@ -436,6 +441,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -511,6 +517,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
             webhook_secret_next: $LINEAR_WEBHOOK_SECRET_NEXT
       ---
       Prompt
@@ -562,6 +569,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -655,6 +663,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -743,6 +752,63 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert json_response(conn, 503)["error"]["code"] == "missing_linear_webhook_secret"
   end
 
+  test "Linear webhook fails closed when enabled without access token" do
+    previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
+    on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)
+    System.put_env("LINEAR_WEBHOOK_SECRET", "secret")
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-linear-missing-access-token-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: $LINEAR_WEBHOOK_SECRET
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        webhookTimestamp: System.system_time(:millisecond),
+        type: "AgentSessionEvent",
+        action: "created",
+        agentSession: %{
+          id: "session-missing-linear-token",
+          issue: %{id: "issue-missing-linear-token", identifier: "ENG-1", title: "Fix", state: %{name: "Todo"}}
+        }
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("linear-signature", linear_signature(body, "secret"))
+      |> post("/webhooks/linear/agent", body)
+
+    assert json_response(conn, 503)["error"]["code"] == "missing_linear_access_token"
+    assert {:error, :not_found} = RunLedger.lookup_idempotency_key(db_path, "linear:session-missing-linear-token:created:issue-missing-linear-token:durable_task")
+    refute_receive {:unexpected_dispatch, _run_id}, 100
+  end
+
   test "Linear webhook is closed when Linear ingress is disabled" do
     File.write!(
       Workflow.workflow_file_path(),
@@ -809,6 +875,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -873,6 +940,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -937,6 +1005,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -994,6 +1063,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -1050,6 +1120,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -1107,6 +1178,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -1163,6 +1235,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -1220,6 +1293,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -1284,6 +1358,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -1363,6 +1438,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -1432,6 +1508,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -4263,6 +4340,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
@@ -4848,6 +4926,7 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
           linear:
             enabled: true
             webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
       ---
       Prompt
       """
