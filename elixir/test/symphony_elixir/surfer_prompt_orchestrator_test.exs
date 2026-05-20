@@ -87,6 +87,40 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert prompt =~ "Lineage issue: issue-lineage-1"
   end
 
+  test "prompt builder exposes structured request and repository routing maps" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      prompt: """
+      Request mode: {{ surfer.request.mode }}
+      Request trigger: {{ surfer.request.trigger_type }}
+      Source platform: {{ surfer.source.platform }}
+      Repository key: {{ surfer.repository.key }}
+      Repository full name: {{ surfer.repository.full_name }}
+      Repository confidence: {{ surfer.repository.confidence }}
+      Routing confidence: {{ surfer.routing.confidence }}
+      """
+    )
+
+    request =
+      routed_linear_request!("issue-structured-prompt-1", "WEB-PROMPT", "team-web", [
+        %{key: "web", repo: "acme/web", linear_team_ids: ["team-web"]}
+      ])
+
+    issue = %Issue{id: "issue-structured-prompt-1", identifier: "WEB-PROMPT", title: "Prompt shape", state: "Todo"}
+
+    prompt =
+      PromptBuilder.build_prompt(issue,
+        surfer_context: RunRequest.surfer_context(request)
+      )
+
+    assert prompt =~ "Request mode: durable_task"
+    assert prompt =~ "Request trigger: delegation"
+    assert prompt =~ "Source platform: linear"
+    assert prompt =~ "Repository key: web"
+    assert prompt =~ "Repository full name: acme/web"
+    assert prompt =~ "Repository confidence: source_hint"
+    assert prompt =~ "Routing confidence: source_hint"
+  end
+
   test "orchestrator direct dispatch converts a normalized run request into an agent run" do
     parent = self()
     handler_id = {__MODULE__, self(), :orchestrator_runtime_metrics}

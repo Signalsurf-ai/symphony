@@ -208,6 +208,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
     %{
       run_id: request.run_id,
       request_mode: to_string(request.request.mode),
+      request: prompt_safe_request(request.request),
       source_platform: to_string(request.source.platform),
       source: prompt_safe_source(request.source),
       trigger_type: to_string(request.source.trigger_type),
@@ -216,6 +217,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       linear: request.lineage.linear,
       discord: request.lineage.discord,
       github: request.lineage.github,
+      repository: prompt_safe_repository(request.routing),
       routing: request.routing,
       constraints: request.constraints || %{},
       prompt_context: sanitize_prompt_context(context_value(context, :prompt_context)),
@@ -224,6 +226,15 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   end
 
   defp context_value(context, key) when is_map(context), do: Map.get(context, key) || Map.get(context, to_string(key))
+
+  defp prompt_safe_request(request) when is_map(request) do
+    %{
+      mode: request |> Map.get(:mode) |> to_string_or_nil(),
+      trigger_type: request |> Map.get(:trigger_type) |> to_string_or_nil()
+    }
+  end
+
+  defp prompt_safe_request(_request), do: %{}
 
   defp prompt_safe_source(source) when is_map(source) do
     %{
@@ -238,6 +249,17 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   end
 
   defp prompt_safe_source(_source), do: %{}
+
+  defp prompt_safe_repository(routing) when is_map(routing) do
+    %{
+      key: Map.get(routing, :repository_key) || Map.get(routing, "repository_key") || Map.get(routing, :repository) || Map.get(routing, "repository"),
+      full_name: Map.get(routing, :repository_full_name) || Map.get(routing, "repository_full_name"),
+      confidence: routing |> routing_value(:confidence) |> to_string_or_nil(),
+      reason: routing_value(routing, :reason)
+    }
+  end
+
+  defp prompt_safe_repository(_routing), do: %{}
 
   defp to_string_or_nil(nil), do: nil
   defp to_string_or_nil(value), do: to_string(value)
