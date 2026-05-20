@@ -757,6 +757,15 @@ defmodule SymphonyElixir.SurferOperationsTest do
     refute workflow =~ "LINEAR_PROJECT_SLUG"
   end
 
+  test "Surfer docs list unsupported Linear-native features and GitHub ingress non-support" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert readme =~ "Unsupported in Surfer v0.1"
+    assert readme =~ "Linear Skills"
+    assert readme =~ "Linear global chat"
+    assert readme =~ "GitHub webhook ingress"
+  end
+
   test "Surfer host env example does not require legacy Linear polling credentials" do
     env_example = File.read!(Path.expand("../../.env.surfer.example", __DIR__))
 

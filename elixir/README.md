@@ -191,6 +191,14 @@ Live workspace installation still requires real Linear, Discord, GitHub, and Ope
 credentials. The test suite covers deterministic local contracts; it does not fake a successful
 live Discord or Linear workspace install.
 
+### Unsupported in Surfer v0.1
+
+- Linear Skills and Linear global chat are not Surfer trigger surfaces.
+- Broad Linear issue, status, comment, or human-assignee webhooks are not Surfer coding triggers
+  unless Linear emits an `AgentSessionEvent` for Surfer.
+- GitHub webhook ingress is not supported; GitHub remains outbound/context-only for repository,
+  PR, and Company Brain operations.
+
 ### How to really host Surfer v0.1
 
 Use Docker Compose on one trusted VPS. Put the public HTTPS reverse proxy in front of only the
