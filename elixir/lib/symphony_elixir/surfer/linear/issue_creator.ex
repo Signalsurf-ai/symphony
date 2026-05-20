@@ -30,23 +30,37 @@ defmodule SymphonyElixir.Surfer.Linear.IssueCreator do
   end
 
   defp issue_input(attrs, opts) do
-    team_id = Keyword.get(opts, :team_id)
+    case nonblank_string(Keyword.get(opts, :team_id)) do
+      {:ok, team_id} ->
+        input =
+          %{
+            teamId: team_id,
+            title: Map.get(attrs, :title) || Map.get(attrs, "title"),
+            description: Map.get(attrs, :description) || Map.get(attrs, "description")
+          }
+          |> put_optional(:projectId, normalized_optional_id(Keyword.get(opts, :project_id)))
+          |> put_optional(:stateId, normalized_optional_id(Keyword.get(opts, :state_id)))
 
-    if is_binary(team_id) and team_id != "" do
-      input =
-        %{
-          teamId: team_id,
-          title: Map.get(attrs, :title) || Map.get(attrs, "title"),
-          description: Map.get(attrs, :description) || Map.get(attrs, "description")
-        }
-        |> put_optional(:projectId, Keyword.get(opts, :project_id))
-        |> put_optional(:stateId, Keyword.get(opts, :state_id))
+        {:ok, input}
 
-      {:ok, input}
-    else
-      {:error, :missing_linear_team_id}
+      :error ->
+        {:error, :missing_linear_team_id}
     end
   end
+
+  defp normalized_optional_id(value) do
+    case nonblank_string(value) do
+      {:ok, string} -> string
+      :error -> nil
+    end
+  end
+
+  defp nonblank_string(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: :error, else: {:ok, value}
+  end
+
+  defp nonblank_string(_value), do: :error
 
   defp normalize_response(%{"data" => %{"issueCreate" => %{"success" => true, "issue" => issue}}})
        when is_map(issue) do

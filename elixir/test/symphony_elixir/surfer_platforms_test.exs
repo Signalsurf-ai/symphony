@@ -714,4 +714,22 @@ defmodule SymphonyElixir.SurferPlatformsTest do
     assert variables.input.projectId == "project-1"
     assert variables.input.title == "Fix routing"
   end
+
+  test "Linear issue creation rejects blank team id before GraphQL" do
+    parent = self()
+
+    graphql_fun = fn _query, _variables ->
+      send(parent, :unexpected_graphql)
+      {:ok, %{}}
+    end
+
+    assert {:error, :missing_linear_team_id} =
+             Linear.IssueCreator.create(
+               %{title: "Fix routing", description: "From Discord"},
+               team_id: "   ",
+               graphql_fun: graphql_fun
+             )
+
+    refute_receive :unexpected_graphql, 100
+  end
 end
