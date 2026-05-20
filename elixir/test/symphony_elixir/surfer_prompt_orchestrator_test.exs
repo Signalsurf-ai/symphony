@@ -370,6 +370,20 @@ defmodule SymphonyElixir.SurferPromptOrchestratorTest do
     assert leaking_surfer_logs == []
   end
 
+  test "Surfer persisted error fields inspect failure reasons through the shared redactor" do
+    source = File.read!("lib/symphony_elixir/orchestrator.ex")
+
+    leaking_error_fields =
+      source
+      |> String.split("\n")
+      |> Enum.filter(fn line ->
+        String.contains?(line, ["error:", "error_message:"]) and
+          Regex.match?(~r/(?<!safe_)inspect\(reason\)/, line)
+      end)
+
+    assert leaking_error_fields == []
+  end
+
   test "orchestrator direct dispatch refuses an already claimed Linear issue" do
     parent = self()
     orchestrator_name = Module.concat(__MODULE__, :ClaimedDispatchOrchestrator)

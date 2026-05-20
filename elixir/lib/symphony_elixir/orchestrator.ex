@@ -789,7 +789,7 @@ defmodule SymphonyElixir.Orchestrator do
       session_id: session_id,
       type: to_string(type),
       body: body,
-      error: inspect(reason)
+      error: safe_inspect(reason)
     }
 
     record_pending_platform_write(running_entry, "linear", "#{session_id}:#{type}", payload)
@@ -831,7 +831,7 @@ defmodule SymphonyElixir.Orchestrator do
       type: "channel_message",
       channel_id: channel_id,
       body: body,
-      error: inspect(reason)
+      error: safe_inspect(reason)
     }
 
     run_id = running_entry_run_id(running_entry)
@@ -1071,7 +1071,7 @@ defmodule SymphonyElixir.Orchestrator do
 
         schedule_issue_retry(state, issue.id, next_attempt, %{
           identifier: issue.identifier,
-          error: "failed to spawn agent: #{inspect(reason)}",
+          error: "failed to spawn agent: #{safe_inspect(reason)}",
           worker_host: worker_host
         })
     end
@@ -1179,7 +1179,7 @@ defmodule SymphonyElixir.Orchestrator do
            state,
            issue_id,
            attempt + 1,
-           Map.merge(metadata, %{error: "retry poll failed: #{inspect(reason)}"})
+           Map.merge(metadata, %{error: "retry poll failed: #{safe_inspect(reason)}"})
          )}
     end
   end
@@ -1731,7 +1731,7 @@ defmodule SymphonyElixir.Orchestrator do
         record_surfer_status(request, "failed",
           reason: "failed to spawn runner",
           actor: "surfer",
-          error_message: inspect(reason)
+          error_message: safe_inspect(reason)
         )
 
         {:reply, {:error, reason}, state}
