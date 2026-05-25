@@ -490,15 +490,17 @@ Discord:
 GitHub:
 
 1. Provide repository access through the operator environment, usually `GITHUB_TOKEN` and `gh auth`.
-2. Configure `surfer.repositories` with `key`, `repo`, `checkout_path`, `default_branch`, and the
+2. Configure the git author identity used by Codex commits, usually a bot name plus a GitHub
+   no-reply or team-controlled email address. This is not an email inbox integration.
+3. Configure `surfer.repositories` with `key`, `repo`, `checkout_path`, `default_branch`, and the
    Linear team or Discord channel IDs that should route to that repository.
-3. Set `COMPANY_BRAIN_REPO=Signalsurf-ai/signalsurf-company-brain` when
+4. Set `COMPANY_BRAIN_REPO=Signalsurf-ai/signalsurf-company-brain` when
    on-demand Company Brain retrieval should be available.
-4. Surfer v0.1 uses GitHub only for outbound repository, PR, and Company Brain context operations;
+5. Surfer v0.1 uses GitHub only for outbound repository, PR, and Company Brain context operations;
    do not configure GitHub webhooks as Surfer triggers.
-5. GitHub PR creation/update and PR context reads require the selected run repository. Surfer
+6. GitHub PR creation/update and PR context reads require the selected run repository. Surfer
    rejects GitHub operations when `repo` differs from `selected_repo`, before any GitHub API call.
-6. The Surfer workspace hook receives `SURFER_SELECTED_REPOSITORY_URL` and related
+7. The Surfer workspace hook receives `SURFER_SELECTED_REPOSITORY_URL` and related
    `SURFER_SELECTED_REPOSITORY_*` metadata from the routing result. The example workflow falls back
    to `SURFER_REPOSITORY_URL` only for single-repository deployments or local smoke setup.
 
