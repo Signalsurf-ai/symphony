@@ -1,6 +1,15 @@
 defmodule SymphonyElixir.CoreTest do
   use SymphonyElixir.TestSupport
 
+  defmodule RedactingLinearClient do
+    def fetch_candidate_issues do
+      {:error, {:linear_down, "Authorization: Bearer poll-secret access_token=poll-secret"}}
+    end
+
+    def fetch_issues_by_states(_states), do: {:ok, []}
+    def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
+  end
+
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
@@ -12,6 +21,7 @@ defmodule SymphonyElixir.CoreTest do
     )
 
     config = Config.settings!()
+    assert config.polling.enabled == true
     assert config.polling.interval_ms == 30_000
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
@@ -29,6 +39,9 @@ defmodule SymphonyElixir.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: 45_000)
     assert Config.settings!().polling.interval_ms == 45_000
+
+    write_workflow_file!(Workflow.workflow_file_path(), polling_enabled: false)
+    assert Config.settings!().polling.enabled == false
 
     write_workflow_file!(Workflow.workflow_file_path(), max_turns: 0)
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
@@ -113,6 +126,63 @@ defmodule SymphonyElixir.CoreTest do
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
     assert Config.workflow_prompt() == prompt
+  end
+
+  test "orchestrator tick keeps the last runtime config when workflow config is invalid" do
+    write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: 45_000)
+    assert {:ok, state} = Orchestrator.init([])
+    assert state.poll_interval_ms == 45_000
+
+    write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "polling.interval_ms"
+
+    assert {:noreply, refreshed_state} = Orchestrator.handle_info(:tick, state)
+    assert refreshed_state.poll_interval_ms == 45_000
+  end
+
+  test "orchestrator does not schedule Linear polling when polling is disabled" do
+    write_workflow_file!(Workflow.workflow_file_path(), polling_enabled: false)
+
+    assert {:ok, state} = Orchestrator.init([])
+    assert state.polling_enabled == false
+    assert state.next_poll_due_at_ms == nil
+    assert state.tick_timer_ref == nil
+    assert state.tick_token == nil
+
+    assert {:reply, %{queued: false, reason: :polling_disabled, operations: []}, refreshed_state} =
+             Orchestrator.handle_call(:request_refresh, {self(), make_ref()}, state)
+
+    assert refreshed_state.polling_enabled == false
+    assert refreshed_state.next_poll_due_at_ms == nil
+    assert refreshed_state.tick_timer_ref == nil
+  end
+
+  test "legacy Linear polling logs redact token-shaped fetch failures" do
+    previous_linear_client_module = Application.get_env(:symphony_elixir, :linear_client_module)
+
+    on_exit(fn ->
+      if is_nil(previous_linear_client_module) do
+        Application.delete_env(:symphony_elixir, :linear_client_module)
+      else
+        Application.put_env(:symphony_elixir, :linear_client_module, previous_linear_client_module)
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :linear_client_module, RedactingLinearClient)
+    write_workflow_file!(Workflow.workflow_file_path(), polling_enabled: true)
+
+    assert {:ok, state} = Orchestrator.init([])
+
+    log =
+      capture_log([level: :error], fn ->
+        assert {:noreply, _state} = Orchestrator.handle_info(:run_poll_cycle, state)
+      end)
+
+    assert log =~ "Failed to fetch from Linear"
+    assert log =~ "Authorization: Bearer [REDACTED]"
+    assert log =~ "access_token=[REDACTED]"
+    refute log =~ "poll-secret"
   end
 
   test "linear api token resolves from LINEAR_API_KEY env var" do
@@ -526,7 +596,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    initial_state = :sys.get_state(pid)
+    initial_state = :sys.get_state(pid, 10_000)
 
     running_entry = %{
       pid: self(),
@@ -543,15 +613,16 @@ defmodule SymphonyElixir.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
+    retry_reference_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :normal})
     Process.sleep(50)
-    state = :sys.get_state(pid)
+    state = :sys.get_state(pid, 10_000)
 
     refute Map.has_key?(state.running, issue_id)
     assert MapSet.member?(state.completed, issue_id)
     assert %{attempt: 1, due_at_ms: due_at_ms} = state.retry_attempts[issue_id]
     assert is_integer(due_at_ms)
-    assert_due_in_range(due_at_ms, 500, 1_100)
+    assert_due_in_range(due_at_ms, 500, 1_100, retry_reference_ms)
   end
 
   test "abnormal worker exit increments retry attempt progressively" do
@@ -566,7 +637,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    initial_state = :sys.get_state(pid)
+    initial_state = :sys.get_state(pid, 10_000)
 
     running_entry = %{
       pid: self(),
@@ -584,14 +655,15 @@ defmodule SymphonyElixir.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
+    retry_reference_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
     Process.sleep(50)
-    state = :sys.get_state(pid)
+    state = :sys.get_state(pid, 10_000)
 
     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, 39_500, 40_500)
+    assert_due_in_range(due_at_ms, 39_500, 40_500, retry_reference_ms)
   end
 
   test "first abnormal worker exit waits before retrying" do
@@ -606,7 +678,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    initial_state = :sys.get_state(pid)
+    initial_state = :sys.get_state(pid, 10_000)
 
     running_entry = %{
       pid: self(),
@@ -623,14 +695,15 @@ defmodule SymphonyElixir.CoreTest do
       |> Map.put(:retry_attempts, %{})
     end)
 
+    retry_reference_ms = System.monotonic_time(:millisecond)
     send(pid, {:DOWN, ref, :process, self(), :boom})
     Process.sleep(50)
-    state = :sys.get_state(pid)
+    state = :sys.get_state(pid, 10_000)
 
     assert %{attempt: 1, due_at_ms: due_at_ms, identifier: "MT-560", error: "agent exited: :boom"} =
              state.retry_attempts[issue_id]
 
-    assert_due_in_range(due_at_ms, 9_000, 10_500)
+    assert_due_in_range(due_at_ms, 9_500, 10_500, retry_reference_ms)
   end
 
   test "stale retry timer messages do not consume newer retry entries" do
@@ -644,7 +717,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    initial_state = :sys.get_state(pid)
+    initial_state = :sys.get_state(pid, 10_000)
     current_retry_token = make_ref()
     stale_retry_token = make_ref()
 
@@ -670,7 +743,7 @@ defmodule SymphonyElixir.CoreTest do
              retry_token: ^current_retry_token,
              identifier: "MT-561",
              error: "agent exited: :boom"
-           } = :sys.get_state(pid).retry_attempts[issue_id]
+           } = :sys.get_state(pid, 10_000).retry_attempts[issue_id]
   end
 
   test "manual refresh coalesces repeated requests and ignores superseded ticks" do
@@ -750,8 +823,13 @@ defmodule SymphonyElixir.CoreTest do
     assert Orchestrator.select_worker_host_for_test(state, "worker-a") == "worker-a"
   end
 
-  defp assert_due_in_range(due_at_ms, min_remaining_ms, max_remaining_ms) do
-    remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
+  defp assert_due_in_range(
+         due_at_ms,
+         min_remaining_ms,
+         max_remaining_ms,
+         reference_ms
+       ) do
+    remaining_ms = due_at_ms - reference_ms
 
     assert remaining_ms >= min_remaining_ms
     assert remaining_ms <= max_remaining_ms
@@ -1015,6 +1093,10 @@ defmodule SymphonyElixir.CoreTest do
 
       File.write!(codex_binary, """
       #!/bin/sh
+      if [ ! -f .surfer-run.lock ]; then
+        echo "missing surfer run lock" >&2
+        exit 7
+      fi
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -1071,6 +1153,229 @@ defmodule SymphonyElixir.CoreTest do
       workspace = Path.join(workspace_root, workspace_name)
       assert File.exists?(workspace)
       assert File.exists?(Path.join(workspace, "README.md"))
+      refute File.exists?(Path.join(workspace, ".surfer-run.lock"))
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner can isolate a Surfer run under repository and run id workspace segments" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-surfer-workspace-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace_root)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      if [ ! -f .surfer-run.lock ]; then
+        echo "missing surfer run lock" >&2
+        exit 7
+      fi
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{\"id\":1,\"result\":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-1\"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-1\"}}}'
+            printf '%s\\n' '{\"method\":\"turn/completed\"}'
+            exit 0
+            ;;
+          *)
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-surfer-workspace",
+        identifier: "ENG-100",
+        title: "Smoke test",
+        description: "Run in Surfer workspace",
+        state: "In Progress",
+        labels: []
+      }
+
+      assert :ok =
+               AgentRunner.run(issue, nil,
+                 workspace_identifier: ["web", "surf_run_nested"],
+                 issue_state_fetcher: fn _issue_ids -> {:ok, []} end
+               )
+
+      workspace = Path.join([workspace_root, "web", "surf_run_nested"])
+      assert File.dir?(workspace)
+      refute File.exists?(Path.join(workspace, ".surfer-run.lock"))
+      refute File.exists?(Path.join(workspace_root, "ENG-100"))
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner includes known Surfer run ids in its logs" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-surfer-log-context-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace_root)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      rm -f .surfer-run.lock
+      mkdir .surfer-run.lock
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+        case "$count" in
+          1)
+            printf '%s\\n' '{\"id\":1,\"result\":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-log\"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-log\"}}}'
+            printf '%s\\n' '{\"method\":\"turn/completed\"}'
+            exit 0
+            ;;
+          *)
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server",
+        hook_after_create: "true",
+        hook_before_run: "true",
+        hook_after_run: "true"
+      )
+
+      issue = %Issue{
+        id: "issue-surfer-log-context",
+        identifier: "ENG-101",
+        title: "Smoke test",
+        description: "Correlate runner logs",
+        state: "In Progress",
+        labels: []
+      }
+
+      log =
+        capture_log(fn ->
+          assert :ok =
+                   AgentRunner.run(issue, nil,
+                     surfer_context: %{run_id: "surf_run_log_context"},
+                     workspace_identifier: ["web", "surf_run_log_context"],
+                     issue_state_fetcher: fn _issue_ids -> {:ok, []} end
+                   )
+        end)
+
+      assert log =~
+               "Starting agent run for issue_id=issue-surfer-log-context issue_identifier=ENG-101 run_id=surf_run_log_context"
+
+      assert log =~
+               "Completed agent run for issue_id=issue-surfer-log-context issue_identifier=ENG-101 run_id=surf_run_log_context"
+
+      relevant_log_lines =
+        log
+        |> String.split("\n", trim: true)
+        |> Enum.filter(fn line ->
+          String.contains?(line, "issue-surfer-log-context") or
+            String.contains?(line, "surf_run_log_context")
+        end)
+
+      assert relevant_log_lines != []
+
+      Enum.each(relevant_log_lines, fn line ->
+        assert line =~ "run_id=surf_run_log_context"
+      end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner redacts secret-shaped hook failures in logs and errors" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-agent-runner-hook-redaction-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      File.mkdir_p!(workspace_root)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_before_run: "printf 'Authorization: Bearer runner-hook-secret\\napi_key=runner-api-secret\\n' && exit 17"
+      )
+
+      issue = %Issue{
+        id: "issue-surfer-hook-redaction",
+        identifier: "ENG-102",
+        title: "Hook redaction",
+        description: "Do not leak hook secrets",
+        state: "In Progress",
+        labels: []
+      }
+
+      parent = self()
+
+      log =
+        capture_log(fn ->
+          exception =
+            assert_raise RuntimeError, fn ->
+              AgentRunner.run(issue, nil,
+                surfer_context: %{run_id: "surf_run_hook_redaction"},
+                workspace_identifier: ["web", "surf_run_hook_redaction"],
+                issue_state_fetcher: fn _issue_ids -> {:ok, []} end
+              )
+            end
+
+          send(parent, {:agent_exception_message, Exception.message(exception)})
+        end)
+
+      assert_receive {:agent_exception_message, message}
+      assert log =~ "run_id=surf_run_hook_redaction"
+      assert log =~ "Authorization: Bearer [REDACTED]"
+      assert log =~ "api_key=[REDACTED]"
+      assert message =~ "Authorization: Bearer [REDACTED]"
+      assert message =~ "api_key=[REDACTED]"
+      refute log =~ "runner-hook-secret"
+      refute log =~ "runner-api-secret"
+      refute message =~ "runner-hook-secret"
+      refute message =~ "runner-api-secret"
     after
       File.rm_rf(test_root)
     end

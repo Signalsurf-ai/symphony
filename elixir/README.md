@@ -1,7 +1,8 @@
 # Symphony Elixir
 
-This directory contains the current Elixir/OTP implementation of Symphony, based on
-[`SPEC.md`](../SPEC.md) at the repository root.
+This directory contains the Elixir/OTP service used as the legacy Symphony poller plus Surfer v0.1 runner.
+[`SPEC.md`](../SPEC.md) remains the legacy Symphony polling specification; Surfer v0.1 behavior is
+defined by the local PRD and the webhook-first `SURFER_WORKFLOW.example.md` workflow.
 
 > [!WARNING]
 > Symphony Elixir is prototype software intended for evaluation only and is presented as-is.
@@ -11,7 +12,9 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 
 ![Symphony Elixir screenshot](../.github/media/elixir-screenshot.png)
 
-## How it works
+## How legacy Symphony polling works
+
+The original Symphony workflow is a Linear project poller:
 
 1. Polls Linear for candidate work
 2. Creates a workspace per issue
@@ -26,7 +29,7 @@ skills can make raw Linear GraphQL calls.
 If a claimed issue moves to a terminal state (`Done`, `Closed`, `Cancelled`, or `Duplicate`),
 Symphony stops the active agent for that issue and cleans up matching workspaces.
 
-## How to use it
+## How to use legacy Symphony polling
 
 1. Make sure your codebase is set up to work well with agents: see
    [Harness engineering](https://openai.com/index/harness-engineering/).
@@ -42,7 +45,8 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
    - When creating a workflow based on this repo, note that it depends on non-standard Linear
      issue statuses: "Rework", "Human Review", and "Merging". You can customize them in
      Team Settings → Workflow in Linear.
-6. Follow the instructions below to install the required runtime dependencies and start the service.
+6. Follow the instructions below to install the required runtime dependencies and start the legacy
+   poller service.
 
 ## Prerequisites
 
@@ -53,7 +57,7 @@ mise install
 mise exec -- elixir --version
 ```
 
-## Run
+## Run legacy Symphony polling
 
 ```bash
 git clone https://github.com/openai/symphony
@@ -65,6 +69,467 @@ mise exec -- mix build
 mise exec -- ./bin/symphony ./WORKFLOW.md
 ```
 
+Do not use this `WORKFLOW.md` command for Surfer v0.1 hosting. Surfer uses
+[`SURFER_WORKFLOW.example.md`](SURFER_WORKFLOW.example.md), Docker Compose mounts that file as
+`/app/WORKFLOW.md`, and the Surfer workflow keeps `polling.enabled: false`.
+
+## Surfer v0.1 VPS Deployment
+
+Surfer is the organization-agent layer built on this runner. Its trigger path is webhook first:
+Linear `AgentSessionEvent` and Discord Interactions enter Surfer directly. The existing Symphony
+Linear project poller remains available only through a separate legacy/fallback workflow with
+Surfer platform ingress disabled.
+
+Surfer v0.1 does not poll Linear for normal tasks. Only Linear `AgentSessionEvent` webhooks and
+Discord webhooks start Surfer runs; the legacy project poller is not a Surfer trigger surface.
+
+Linear Agent sessions are the Surfer v0.1 trigger contract. Delegating an issue to Surfer,
+mentioning Surfer, or sending a follow-up agent prompt should create `AgentSessionEvent` webhooks
+that enter `/webhooks/linear/agent`. Ordinary Linear issue status changes, comments that do not
+mention or prompt Surfer, and human assignee changes are not separate Surfer triggers in v0.1
+unless Linear turns them into an agent-session event for Surfer.
+If a future release needs broad status/comment notification triggers, add a distinct Linear
+notification webhook contract instead of re-enabling project polling as the default.
+
+### What is implemented
+
+- Linear `AgentSessionEvent` HTTP ingress at `/webhooks/linear/agent` by default, with
+  `surfer.platforms.linear.webhook_path` enforced when configured. The route returns `404` when
+  `surfer.platforms.linear.enabled` is false.
+- Linear raw-body HMAC verification using `LINEAR_WEBHOOK_SECRET`.
+- Linear webhook payload type handling requires `AgentSessionEvent`; missing or non-agent event
+  types return `400` without dispatch.
+- Linear `AgentSessionEvent` action handling accepts `created` and `prompted`; missing or
+  unsupported actions return `400` without dispatch. `prompted` events also require nonblank
+  directive text before claim or dispatch.
+- Linear idempotency keys require real natural-key fields: agent session ID, and either a
+  comment/issue ID for `created` or an agent activity ID for `prompted`.
+- Surfer v0.1 deployment disables the legacy Symphony Linear project poller with
+  `polling.enabled: false`; config rejects enabling it while Surfer direct ingress is enabled.
+- Enabled Linear, Discord, and GitHub config fails closed at application startup when required
+  secrets are missing.
+- Early Linear `thought` activity plus final `response` or `error` activity for direct-dispatch runs.
+  Failed initial `thought` writes are queued as retryable pending writes while dispatch continues.
+  Pre-dispatch Linear error activity failures are queued as retryable pending writes.
+- Linear agent-session external URL mutation support, including a Surfer run lookup link when
+  `surfer.external_base_url` is configured and pending-write capture if the update fails.
+- Linear agent sessions allow one active Surfer run at a time; overlapping events for the same
+  session are recorded as `awaiting_input` instead of starting duplicate Codex work.
+- Discord HTTP Interactions ingress at `/webhooks/discord/interactions` by default, with
+  `surfer.platforms.discord.interactions_path` enforced when configured. The route returns `404`
+  when `surfer.platforms.discord.enabled` is false.
+- Discord `PING`/`PONG`, Ed25519 request verification, guild/channel allowlists, `/surfer`
+  subcommands, deferred slash-command ACKs, original-response edits, deduplication, and per-user
+  cooldowns plus per-channel queued-run limits and optional ledger-backed daily user/channel run
+  caps.
+- Enabled Discord ingress fails closed during config/startup validation when guild or channel
+  allowlists are missing.
+- Discord message ingress at `/webhooks/discord/message` for gateway adapters or internal relays,
+  active only when `surfer.platforms.discord.enabled: true`, with
+  `surfer.platforms.discord.message_ingress_path`, HMAC-SHA256 relay verification, and the same
+  configured guild/channel allowlists enforced before dispatch. Relay callers must sign
+  `x-surfer-discord-relay-timestamp <> "." <> raw_body` with `DISCORD_MESSAGE_INGRESS_SECRET` and
+  send the hex digest as `x-surfer-discord-relay-signature`. Message relay accepts only explicit
+  `surfer ...` command messages; ordinary allowed-channel messages are rejected before claim or
+  dispatch.
+- Discord idempotency keys require real interaction IDs, or real guild/channel/message IDs for
+  message-relay ingress.
+- Discord-to-Linear issue creation through Linear `issueCreate`.
+- Discord durable `run` requests create a Linear issue and persist the Linear issue link before
+  dispatching long-running Codex work.
+- Discord original-response edit failures retry within the short-lived interaction-token window
+  measured from interaction receipt, emit telemetry after retry exhaustion, and fall back to a bot
+  channel message without storing the interaction token.
+- Discord Interactions return an immediate paused response without editing the original interaction
+  response or dispatching when `surfer.paused: true` or `SURFER_PAUSED=true` is active.
+- Discord REST helper errors redact bot-token and interaction-token shaped values before returning
+  to callers; completion, fallback, and error notification failures are recorded as retryable
+  pending writes without storing interaction tokens.
+- Discord lifecycle controls for `cancel`, `retry`, and `takeover` against locally-ledgered runs;
+  these controls bypass Discord run cooldown and queue/daily-cap gates so active runs can still be
+  stopped or handed off when invocation limits are saturated.
+- Deterministic repository routing from PRD-shaped `key`/`repo` repository config, explicit
+  `repository_key`, Linear project IDs, Linear team IDs, Discord channel IDs, or a single
+  configured fallback. Linear project-aware routes win over team-only fallback; when a repository
+  entry configures both `linear_team_ids` and `linear_project_ids`, both must match. Linear and
+  Discord ingress apply this routing before dispatch; ambiguous routing is recorded as
+  `awaiting_input`, and Discord interactions edit the original response with the ambiguous
+  repository candidates instead of silently starting work. The workspace `after_create` hook
+  receives `SURFER_SELECTED_REPOSITORY_URL`, `SURFER_SELECTED_REPOSITORY_FULL_NAME`,
+  `SURFER_SELECTED_REPOSITORY_KEY`, and `SURFER_SELECTED_REPOSITORY_CHECKOUT_PATH` so checkout can
+  use the selected route instead of a global repository fallback. When GitHub outbound/context is
+  enabled, durable work without any configured repository route fails visibly instead of dispatching
+  an unrouted write run.
+- Daily Codex budget-cap enforcement at ingress from the SQLite usage ledger, plus active-run
+  per-run and shared daily budget-cap status marking when recorded usage reaches the configured
+  cap.
+- Optional workspace disk-pressure ingress blocking when `disk_pressure_max_used_percent` is set;
+  unreadable disk-usage checks fail closed and skip dispatch.
+- Workspace retention cleanup helper that preserves active and awaiting-review runs.
+- AgentRunner holds an exclusive `.surfer-run.lock` in the workspace while Codex is running.
+- Local embedded SQLite run/event/link/idempotency ledger with natural-key atomic claims, status
+  transitions, indexes, pending-write events, pending-write requeue result events, budget usage
+  events, retry links, secret-shaped idempotency-key rejection, bounded transient claim retry,
+  claim-failure 503s before dispatch, embedded backup/integrity-check/restore helpers, redacted
+  status error messages, redacted run lookup correlation columns, redacted event/link external IDs
+  and link URLs, redacted per-run JSONL event logs, loopback-only backup creation, and redacted
+  operator lookup data including raw platform payload containers.
+- Loopback-only run lookup at `/api/v1/surfer/runs/:run_id`.
+- Loopback-only operator pause/unpause plus run controls for cancel, retry, and takeover.
+- Loopback-only pending platform-write requeue at `/api/v1/surfer/outbox/requeue`.
+- GitHub PR-open ledger bookkeeping records a PR link, `github_pr_opened` event, and
+  `awaiting_review` status transition, and updates the Linear agent session with the GitHub PR
+  URL when the run has Linear session lineage. Failed PR URL updates are queued as pending writes.
+- Minimal Surfer telemetry for run starts/completions/failures/cancellations, duplicates, platform
+  write failures/timing, signature failures, Discord follow-up failures, webhook ACK timing, first
+  Linear activity timing, Codex run timing, runtime gauges, workspace disk usage, daily budget
+  remaining, pending-write backlog/stale age, and budget-cap hits.
+- GitHub outbound PR create/update/context helper with selected-run-repository enforcement,
+  redacted review/comment bodies, and API error payloads, plus scoped Company Brain retrieval that
+  passes provenance-only refs including repo, path, commit, and freshness when available with
+  redacted provenance fields and bounded redacted summaries. GitHub webhook ingress is
+  intentionally not implemented for v0.1. Configured Company Brain path scopes are normalized
+  before retrieval, and refs with absolute or traversal-looking paths are rejected before they enter
+  prompt context.
+- Shared direct-dispatch claim checks so duplicate Linear issue runners are refused locally, plus
+  shared SQLite checks that block a same-repository write run already active outside the current
+  orchestrator process.
+- Surfer prompt context injection for run ID, request mode, source platform,
+  trigger, lineage IDs, routing, read/write constraints, a bounded redacted platform prompt-context
+  excerpt, and scoped Company Brain provenance with background authority labeling when retrieved.
+  The structured source, lineage, routing, constraint, and Company Brain provenance maps are
+  recursively redacted before the first Codex turn.
+- Final Linear/Discord status summaries include provenance-only Company Brain refs when retrieved;
+  raw summaries stay out of final activity bodies.
+
+Live workspace installation still requires real Linear, Discord, GitHub, and OpenAI/Codex
+credentials. The test suite covers deterministic local contracts; it does not fake a successful
+live Discord or Linear workspace install.
+
+### Unsupported in Surfer v0.1
+
+- Linear Skills and Linear global chat are not Surfer trigger surfaces.
+- Broad Linear issue, status, comment, or human-assignee webhooks are not Surfer coding triggers
+  unless Linear emits an `AgentSessionEvent` for Surfer.
+- GitHub webhook ingress is not supported; GitHub remains outbound/context-only for repository,
+  PR, and Company Brain operations.
+
+### How to really host Surfer v0.1
+
+Use Docker Compose on one trusted VPS. Docker Compose is the v0.1 process manager, using the
+Compose `restart: unless-stopped` policy and the container health check as the local restart signal.
+Put the public HTTPS reverse proxy in front of the service, but the public reverse proxy must expose
+only webhook paths. Keep the operator API loopback-only, and treat Linear as the durable task state.
+The SQLite ledger is local operational state for run claims, events, links, pending writes, and
+lookup.
+
+1. Clone this repository on the VPS and work from `symphony/elixir`.
+2. Point DNS and TLS at the VPS. Proxy HTTPS traffic to the loopback-bound container port `4000`
+   for `/webhooks/linear/agent`, `/webhooks/discord/interactions`, and, only if you run a gateway
+   relay, `/webhooks/discord/message`.
+3. Keep `/api/v1/surfer/*` off the public internet. Access it through SSH port forwarding, for
+   example `ssh -L 4000:127.0.0.1:4000 surfer@<vps>`.
+4. Copy `.env.surfer.example` to `.env.surfer`, fill the real Linear, Discord, GitHub, repository,
+   public URL, and mounted Codex home settings, and never commit that file.
+5. Decide the VPS disk encryption posture before storing logs, SQLite state, workspaces, or Codex
+   OAuth state on the host. If the VPS disk is not encrypted, record that in release notes as an
+   accepted risk; Surfer v0.1 does not add application-level encryption at rest.
+6. Create the mounted host paths and make them writable by the container user:
+
+   ```bash
+   sudo mkdir -p /srv/surfer/{workspaces,logs,state,codex}
+   sudo chown -R 10001:10001 /srv/surfer
+   ```
+
+   The default Compose file bind-mounts those paths through `SURFER_HOST_WORKSPACE_ROOT`,
+   `SURFER_HOST_LOGS_DIR`, `SURFER_HOST_STATE_DIR`, and `SURFER_HOST_CODEX_HOME`. Inside the
+   container they remain `/srv/surfer/workspaces`, `/srv/surfer/logs`, `/srv/surfer/state`, and
+   `/home/surfer/.codex`.
+7. Build and check the deployment shape. By default Compose binds the service to
+   `127.0.0.1:4000`; keep that default unless a firewall/VPN/reverse-proxy layer provides the same
+   operator API isolation.
+
+   ```bash
+   docker compose -f docker-compose.surfer.yml config
+   docker compose -f docker-compose.surfer.yml build
+   ```
+
+8. Authenticate the operator-owned OpenAI Pro Codex session into the mounted Codex home:
+
+   ```bash
+   docker compose -f docker-compose.surfer.yml run --rm --entrypoint codex surfer login
+   ```
+
+9. From the repo checkout, run preflight with the same `.env.surfer` values loaded. Use
+   `--skip-codex` only before the OAuth session exists:
+
+   ```bash
+   set -a
+   . ./.env.surfer
+   set +a
+   mise exec -- mix surfer.live_preflight
+   ```
+
+10. Configure platform ingress:
+   - Linear `AgentSessionEvent`: `https://<your-vps-host>/webhooks/linear/agent`.
+   - Discord Interactions Endpoint URL:
+     `https://<your-vps-host>/webhooks/discord/interactions`.
+   - GitHub: outbound token and repository routing only. Do not add GitHub webhooks for Surfer
+     v0.1.
+11. Start Surfer:
+
+    ```bash
+    docker compose -f docker-compose.surfer.yml up -d --build
+    curl -fsS http://127.0.0.1:4000/api/v1/state
+    ```
+
+12. Smoke one real path from each enabled surface before calling the host ready:
+    - Trigger a Linear Agent session and confirm started and final/error agent activities.
+    - Run Discord `/surfer ask`, `/surfer issue`, or `/surfer run` from an allowed guild/channel.
+    - Confirm repository routing, Codex execution, and GitHub PR creation or update for a durable
+      run.
+    - Verify operator lookup through the SSH tunnel:
+      `curl -fsS http://127.0.0.1:4000/api/v1/surfer/runs/<run_id>`.
+13. Before declaring v0.1 release-ready, record a live-smoke sample of at least 10 representative
+    runs across Linear, Discord, repository routing, and operator controls. The release gate is
+    `>= 80%` successful runs with failed attempts triaged and visible in Linear, Discord, the
+    ledger, or the operator lookup.
+
+Live-smoke sample record:
+
+| Run ID | Surface | Scenario | Result | Evidence | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `<run_id>` | Linear | Delegate issue | Pass/fail | Linear activity + run lookup URL | |
+| `<run_id>` | Discord | `/surfer run` | Pass/fail | Discord response + Linear issue + PR URL | |
+| `<run_id>` | Operator | Pause and lookup | Pass/fail | Loopback pause response + run lookup URL | |
+
+Release SLOs to check during live smoke:
+
+- Linear webhook ACK latency: p95 < 5 seconds.
+- Linear time to first activity or external URL: p95 < 10 seconds.
+- Discord initial interaction response: p95 < 3 seconds.
+- Discord code-question first visible response: p95 < 30 seconds for fixture-size repo questions.
+- Duplicate dispatch rate under webhook redelivery tests: 0 duplicate runners.
+- Platform write outbox drain: 100% drained or explicitly failed with a visible reason.
+- Ambiguous repository routing: 100% visible failure or clarification, 0 silent dispatches.
+
+Alert or pause Surfer when signature failures spike, Linear start activity p95 exceeds 10 seconds,
+the failed-run rate exceeds 20% over a rolling sample of at least 10 runs, a budget cap is hit, disk
+pressure blocks new runs, or the Platform write outbox has pending items older than 10 minutes.
+
+Use the pause switch when the host should stop accepting new work:
+
+```bash
+curl -X POST http://127.0.0.1:4000/api/v1/surfer/pause
+curl -X POST http://127.0.0.1:4000/api/v1/surfer/unpause
+```
+
+Run controls are also loopback-only:
+
+```bash
+curl -X POST http://127.0.0.1:4000/api/v1/surfer/runs/<run_id>/cancel
+curl -X POST http://127.0.0.1:4000/api/v1/surfer/runs/<run_id>/retry
+curl -X POST http://127.0.0.1:4000/api/v1/surfer/runs/<run_id>/takeover
+curl -X POST http://127.0.0.1:4000/api/v1/surfer/outbox/requeue
+curl -X POST http://127.0.0.1:4000/api/v1/surfer/ledger/backup
+```
+
+### Docker image
+
+Build the image from the repository root:
+
+```bash
+docker build -f elixir/Dockerfile -t surfer:0.1 .
+```
+
+Prepare the env file:
+
+```bash
+cd elixir
+cp .env.surfer.example .env.surfer
+```
+
+The Compose file loads committed defaults from `.env.surfer.example` and then overlays optional
+local secrets from `.env.surfer`. Keeping `.env.surfer` absent is valid for config/build smoke, but
+the service will still fail closed until real platform secrets and mounted paths are configured.
+
+Fill in at minimum:
+
+- `LINEAR_ACCESS_TOKEN`
+- `LINEAR_WEBHOOK_SECRET`
+- `LINEAR_TEAM_ID`
+- `DISCORD_PUBLIC_KEY`
+- `DISCORD_MESSAGE_INGRESS_SECRET`
+- `DISCORD_BOT_TOKEN`
+- `DISCORD_APPLICATION_ID` for one-time `/surfer` command registration
+- `DISCORD_GUILD_ID`
+- `DISCORD_ALLOWED_GUILDS` as a comma-separated ingress allowlist
+- `DISCORD_ALLOWED_CHANNELS` as a comma-separated ingress allowlist
+- `DISCORD_REPORT_CHANNEL_ID`
+- `GITHUB_TOKEN`
+- `SURFER_REPOSITORY_URL` as a single-repository fallback for the example checkout hook; routed
+  Surfer runs set `SURFER_SELECTED_REPOSITORY_URL` before `after_create`.
+- `SURFER_PUBLIC_URL` when Linear agent sessions should link back to Surfer run lookup
+- `SURFER_WORKSPACE_ROOT`
+- `SURFER_LOGS_DIR`
+- `SURFER_STATE_DIR`
+- `SURFER_SQLITE_PATH`
+- `SURFER_CODEX_HOME` as the runtime path, usually `/home/surfer/.codex` inside the container
+
+Optional rotation variables:
+
+- `LINEAR_WEBHOOK_SECRET_NEXT`
+- `DISCORD_PUBLIC_KEY_NEXT`
+- `DISCORD_MESSAGE_INGRESS_SECRET_NEXT`
+
+Optional host-only Docker variable:
+
+- `SURFER_HOST_BIND` as the host interface for port `4000`, defaulting to `127.0.0.1`
+- `SURFER_HOST_CODEX_HOME` as the host path mounted to `/home/surfer/.codex`
+- `SURFER_HOST_WORKSPACE_ROOT`, `SURFER_HOST_LOGS_DIR`, and `SURFER_HOST_STATE_DIR` as the host
+  paths mounted to the container runtime paths
+
+Before starting live smoke validation, run the checked preflight:
+
+```bash
+mise exec -- mix surfer.live_preflight
+```
+
+Use `--skip-codex` only for environment and writable mount checks before the Codex OAuth session has
+been created. A passing preflight verifies required live-smoke inputs, non-empty Discord guild and
+channel allowlists, writable workspace/log/state and Codex home paths, a writable SQLite ledger
+parent directory, and the Codex login status command; it does not replace the Linear, Discord,
+GitHub, and runner smoke tests.
+A passing preflight also requires Surfer to be unpaused. `SURFER_PAUSED=true` fails preflight, and
+`surfer.paused: true` fails preflight when configured in the mounted workflow, because live smoke
+starts with webhook dispatch checks; test the pause switch later in the smoke sequence.
+
+Authenticate Codex once with the mounted Codex home. This is where the operator-owned OpenAI Pro
+OAuth session lives; do not bake it into the image.
+Set `surfer.codex.home` to the mounted Codex home, usually `$SURFER_CODEX_HOME`. When
+`surfer.codex.auth: openai_pro_oauth` is configured, `surfer.codex.app_server_version` is required
+as the operator's Codex app-server schema pin. Surfer runs `surfer.codex.health_check_command` at
+startup with `CODEX_HOME` set from `surfer.codex.home`. A failed health check pauses new dispatch
+through the runtime pause control instead of silently sending work into an unauthenticated Codex
+backend.
+
+### Dependency contingencies
+
+- Linear Agent APIs are Developer Preview. If `AgentSessionEvent` payload shape changes or agent
+  activity writes fail live smoke, pause Surfer and alert the operator. Use the legacy Linear
+  project poller only as a separate temporary Symphony workflow with Surfer platform ingress
+  disabled.
+- The operator OpenAI Pro OAuth session is Surfer v0.1's transitional execution-capacity choice. If
+  the session expires, headless login breaks, account ownership changes, or the startup health check
+  fails, pause dispatch and re-authenticate or review the account. Do not silently fall back to an
+  unapproved account.
+- Codex app-server schema drift is handled by pinning `surfer.codex.app_server_version` and the
+  image Codex package version. Block release or Codex upgrades until parser fixtures and live smoke
+  pass when the JSON event schema or CLI behavior changes.
+
+```bash
+docker compose -f docker-compose.surfer.yml run --rm --entrypoint codex surfer login
+```
+
+Start Surfer:
+
+```bash
+docker compose -f docker-compose.surfer.yml up -d --build
+```
+
+The compose file exposes port `4000` on `127.0.0.1` by default and persists:
+
+- `/srv/surfer/workspaces`
+- `/srv/surfer/logs`
+- `/srv/surfer/state`
+- `/home/surfer/.codex`
+
+The image declares a Docker health check against `http://127.0.0.1:4000/api/v1/state`. It verifies
+the local HTTP runtime without calling Linear, Discord, GitHub, or Codex.
+
+### Platform setup
+
+Linear:
+
+1. Create a Linear OAuth application for Surfer.
+2. Install it with `actor=app` and scopes that include `read`, `write`, `app:assignable`, and `app:mentionable`.
+3. Enable Agent session events.
+4. Set the webhook URL to `https://<your-vps-host>/webhooks/linear/agent`, or to the configured
+   `surfer.platforms.linear.webhook_path` when overriding the default.
+5. Put the app-user OAuth token in `LINEAR_ACCESS_TOKEN`; Surfer uses it for agent activities,
+   session external URLs, and Discord-to-Linear issue creation.
+6. Put the webhook secret in `LINEAR_WEBHOOK_SECRET`.
+7. During rotation, put the incoming replacement secret in `LINEAR_WEBHOOK_SECRET_NEXT` until Linear has switched over.
+
+Discord:
+
+1. Create a Discord application and bot.
+2. Configure the Interactions Endpoint URL as `https://<your-vps-host>/webhooks/discord/interactions`,
+   or to the configured `surfer.platforms.discord.interactions_path` when overriding the default.
+3. Put the application's public key in `DISCORD_PUBLIC_KEY`.
+4. During rotation, put the replacement public key in `DISCORD_PUBLIC_KEY_NEXT` until Discord has switched over.
+5. Put the bot token in `DISCORD_BOT_TOKEN`.
+6. Register a `/surfer` command using the tested guild upsert helper:
+
+   ```bash
+   mise exec -- mix run -e 'IO.inspect(SymphonyElixir.Surfer.Discord.Commands.register_guild_command(%{application_id: System.fetch_env!("DISCORD_APPLICATION_ID"), guild_id: System.fetch_env!("DISCORD_GUILD_ID"), bot_token: System.fetch_env!("DISCORD_BOT_TOKEN")}))'
+   ```
+
+   The payload from `SymphonyElixir.Surfer.Discord.Commands.application_command/0` includes
+   `ask`, `issue`, `run`, `cancel`, `retry`, and `takeover` subcommands.
+   - `ask`, `issue`, and `run` use a string option named `prompt`.
+   - `cancel`, `retry`, and `takeover` use a string option named `run_id`.
+7. Set `DISCORD_GUILD_ID` for command registration and `DISCORD_REPORT_CHANNEL_ID` for the
+   default report/routing channel. Set `DISCORD_ALLOWED_GUILDS` and `DISCORD_ALLOWED_CHANNELS`
+   to comma-separated allowlists for Discord ingress, with at least one nonblank ID in each list.
+   If a gateway adapter or internal relay calls `/webhooks/discord/message`, set
+   `DISCORD_MESSAGE_INGRESS_SECRET` and sign each raw JSON body with HMAC-SHA256 using
+   `x-surfer-discord-relay-timestamp` and
+   `x-surfer-discord-relay-signature`; during relay secret rotation, set
+   `DISCORD_MESSAGE_INGRESS_SECRET_NEXT` until the relay has switched over. Keep the allowlists
+   scoped to the same approved Discord surfaces.
+
+GitHub:
+
+1. Provide repository access through the operator environment, usually `GITHUB_TOKEN` and `gh auth`.
+2. Configure the git author identity used by Codex commits, usually a bot name plus a GitHub
+   no-reply or team-controlled email address. This is not an email inbox integration.
+3. Configure `surfer.repositories` with `key`, `repo`, `checkout_path`, `default_branch`, and the
+   Linear project IDs, Linear team IDs, or Discord channel IDs that should route to that repository.
+   Use project IDs for precise repo selection inside a broad team; use `team + project` on one entry
+   when the combination, not either value alone, identifies the repo.
+4. Set `COMPANY_BRAIN_REPO=Signalsurf-ai/signalsurf-company-brain` when
+   on-demand Company Brain retrieval should be available.
+5. Surfer v0.1 uses GitHub only for outbound repository, PR, and Company Brain context operations;
+   do not configure GitHub webhooks as Surfer triggers.
+6. GitHub PR creation/update and PR context reads require the selected run repository. Surfer
+   rejects GitHub operations when `repo` differs from `selected_repo`, before any GitHub API call.
+7. The Surfer workspace hook receives `SURFER_SELECTED_REPOSITORY_URL` and related
+   `SURFER_SELECTED_REPOSITORY_*` metadata from the routing result. The example workflow falls back
+   to `SURFER_REPOSITORY_URL` only for single-repository deployments or local smoke setup.
+
+### Runtime contract
+
+Use [`SURFER_WORKFLOW.example.md`](SURFER_WORKFLOW.example.md) as the starting workflow. Secrets must
+come from environment variables or a VPS secret manager. SQLite is only a local ledger for run
+history, idempotency, and dashboard lookup; Linear remains canonical for durable task state.
+
+Surfer v0.1 should normally keep:
+
+```yaml
+polling:
+  enabled: false
+```
+
+Linear Agent sessions and Discord Interactions are webhook/direct-dispatch paths. When Surfer
+Linear or Discord ingress is enabled and `polling.enabled` is omitted, the runtime defaults the
+legacy poller to disabled. If `polling.enabled: true` is configured together with Surfer direct
+ingress, config validation fails. Run fallback project polling only from a separate legacy Symphony
+workflow with Surfer platform ingress disabled.
+The poller is not needed for normal Surfer delegation, mention, or follow-up prompt handling.
+The Surfer hosting workflow also uses `tracker.kind: memory`; do not provide `LINEAR_API_KEY` or
+`LINEAR_PROJECT_SLUG` unless you are running a separate legacy polling workflow.
+
 ## Configuration
 
 Pass a custom workflow file path to `./bin/symphony` when starting the service:
@@ -73,7 +538,9 @@ Pass a custom workflow file path to `./bin/symphony` when starting the service:
 ./bin/symphony /path/to/custom/WORKFLOW.md
 ```
 
-If no path is passed, Symphony defaults to `./WORKFLOW.md`.
+If no path is passed, Symphony defaults to `./WORKFLOW.md`. For Surfer v0.1 production hosting,
+start from `SURFER_WORKFLOW.example.md` or another workflow with `polling.enabled: false`; the
+in-repo `WORKFLOW.md` is the legacy Symphony polling workflow.
 
 Optional flags:
 
@@ -132,6 +599,9 @@ Notes:
 - For env-backed path values, use `$VAR`. `workspace.root` resolves `$VAR` before path handling,
   while `codex.command` stays a shell command string and any `$VAR` expansion there happens in the
   launched shell.
+- For Surfer deployments, `surfer.workspace_root` is accepted as an alias for the runtime
+  `workspace.root` when `workspace.root` is omitted. If both are set, `workspace.root` remains the
+  runner source of truth.
 
 ```yaml
 tracker:
@@ -150,6 +620,34 @@ codex:
   reload error until the file is fixed.
 - `server.port` or CLI `--port` enables the optional Phoenix LiveView dashboard and JSON API at
   `/`, `/api/v1/state`, `/api/v1/<issue_identifier>`, and `/api/v1/refresh`.
+  These observability routes are loopback-only; `/api/v1/refresh` also triggers reconciliation.
+- Surfer runtime pause and unpause are available as loopback-only `POST /api/v1/surfer/pause` and
+  `POST /api/v1/surfer/unpause`. Runtime unpause clears only the operator override; if
+  `surfer.paused: true` or `SURFER_PAUSED=true` is configured, ingress remains paused.
+  `SURFER_PAUSED=false` does not unpause a workflow configured with `surfer.paused: true`; remove
+  the configured pause to resume ingress.
+  `SURFER_PAUSE_MODE=cancel` cancels active direct-dispatch runs when the operator pause endpoint is
+  used; the default `drain` mode lets active runs continue while blocking new dispatch. Unsupported
+  `SURFER_PAUSE_MODE` values fail config validation before the service starts.
+- Surfer run lookup is available at `/api/v1/surfer/runs/:run_id` only from loopback addresses.
+  It returns the redacted ledger run, events, links, latest error, and run-scoped log tail; prompt
+  bodies, tokens, and raw platform payload containers are hidden. When `surfer.storage.logs_dir` is
+  configured, the log tail comes from `<logs_dir>/<run_id>.jsonl`.
+- Surfer operator controls are available as loopback-only `POST` endpoints:
+  `/api/v1/surfer/runs/:run_id/cancel`, `/api/v1/surfer/runs/:run_id/retry`, and
+  `/api/v1/surfer/runs/:run_id/takeover`.
+- Surfer pending-write requeue is available as `POST /api/v1/surfer/outbox/requeue` only from
+  loopback addresses. It retries supported Linear and Discord channel-message writes and records
+  drained or failed outcomes. Listing pending writes emits `pending_write_backlog` telemetry and
+  `pending_write_stale` when the oldest pending write is at least 10 minutes old.
+- Surfer ledger backup creation is available as `POST /api/v1/surfer/ledger/backup` only from
+  loopback addresses. Backups are written under the ledger state directory's `backups/` folder and
+  verified with SQLite integrity checks before the response is returned.
+  The v0.1 production policy is a daily ledger backup plus an extra backup before upgrades or
+  destructive maintenance. Copy the verified backup file off-host to operator-controlled encrypted
+  storage; the local `backups/` folder is only the first landing location, not the recovery plan.
+  Before release, restore one backup into a scratch path and verify lookup against the restored
+  SQLite file.
 
 ## Web dashboard
 
@@ -164,7 +662,8 @@ The observability UI now runs on a minimal Phoenix stack:
 
 - `lib/`: application code and Mix tasks
 - `test/`: ExUnit coverage for runtime behavior
-- `WORKFLOW.md`: in-repo workflow contract used by local runs
+- `WORKFLOW.md`: in-repo legacy Symphony polling workflow for local runs
+- `SURFER_WORKFLOW.example.md`: Surfer v0.1 webhook-first workflow with legacy polling disabled
 - `../.codex/`: repository-local Codex skills and setup helpers
 
 ## Testing

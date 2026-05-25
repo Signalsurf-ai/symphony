@@ -1,0 +1,10 @@
+.git
+docs
+elixir/_build
+elixir/deps
+elixir/log
+elixir/.elixir_ls
+**/.DS_Store
+**/.env
+**/.env.*
+!elixir/.env.surfer.example

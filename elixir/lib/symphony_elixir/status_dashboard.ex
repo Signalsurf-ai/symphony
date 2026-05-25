@@ -413,6 +413,10 @@ defmodule SymphonyElixir.StatusDashboard do
     end
   end
 
+  defp format_project_refresh_line(%{enabled?: false}) do
+    colorize("│ Trigger mode: ", @ansi_bold) <> colorize("webhook/direct dispatch", @ansi_cyan)
+  end
+
   defp format_project_refresh_line(%{checking?: true}) do
     colorize("│ Next refresh: ", @ansi_bold) <> colorize("checking now…", @ansi_cyan)
   end

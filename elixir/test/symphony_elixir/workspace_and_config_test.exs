@@ -40,6 +40,35 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "workspace after_create hook receives selected Surfer repository metadata" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-selected-repo-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "printf '%s\\n%s\\n' \"$SURFER_SELECTED_REPOSITORY_URL\" \"$SURFER_SELECTED_REPOSITORY_FULL_NAME\" > selected-repo.txt"
+      )
+
+      assert {:ok, workspace} =
+               Workspace.create_for_issue(%{
+                 id: "issue-selected-repo",
+                 identifier: "S-REPO",
+                 workspace_identifier: ["web", "surf_run_selected_repo"],
+                 selected_repository_url: "https://github.com/acme/web",
+                 selected_repository_full_name: "acme/web"
+               })
+
+      assert File.read!(Path.join(workspace, "selected-repo.txt")) ==
+               "https://github.com/acme/web\nacme/web\n"
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
   test "workspace path is deterministic per issue identifier" do
     workspace_root =
       Path.join(
@@ -206,6 +235,34 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
                Workspace.create_for_issue("MT-FAIL")
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "workspace hook failure logs redact secret-shaped output" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-hook-redaction-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "printf 'Authorization: Bearer hook-secret\\napi_key=hook-api-secret\\n' && exit 17"
+      )
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
+                   Workspace.create_for_issue("MT-HOOK-SECRET")
+        end)
+
+      assert log =~ "Authorization: Bearer [REDACTED]"
+      assert log =~ "api_key=[REDACTED]"
+      refute log =~ "hook-secret"
+      refute log =~ "hook-api-secret"
     after
       File.rm_rf(workspace_root)
     end
@@ -456,6 +513,48 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert log =~ "Linear GraphQL request failed status=400"
     assert log =~ ~s(body=%{"errors" => [%{"extensions" => %{"code" => "BAD_USER_INPUT"})
     assert log =~ "Variable \\\"$ids\\\" got invalid value"
+  end
+
+  test "linear client redacts secret-shaped graphql error logs" do
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, {:linear_api_status, 400}} =
+                 Client.graphql(
+                   "query Viewer { viewer { id } }",
+                   %{},
+                   request_fun: fn _payload, _headers ->
+                     {:ok,
+                      %{
+                        status: 400,
+                        body: %{
+                          "errors" => [
+                            %{
+                              "message" => "access_token=linear-secret-token",
+                              "authorization" => "Bearer linear-secret-token"
+                            }
+                          ]
+                        }
+                      }}
+                   end
+                 )
+
+        assert {:error, {:linear_api_request, _reason}} =
+                 Client.graphql(
+                   "query Viewer { viewer { id } }",
+                   %{},
+                   request_fun: fn _payload, _headers ->
+                     {:error,
+                      %{
+                        "authorization" => "Bearer linear-secret-token",
+                        "reason" => "webhook_secret=linear-secret-token"
+                      }}
+                   end
+                 )
+      end)
+
+    assert log =~ "[REDACTED]"
+    refute log =~ "linear-secret-token"
+    refute log =~ "webhook_secret=linear-secret-token"
   end
 
   test "orchestrator sorts dispatch by priority then oldest created_at" do
@@ -1299,6 +1398,53 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert trace =~ "echo before-remove"
       assert trace =~ "rm -rf"
       assert trace =~ workspace_path
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "remote run-lock cleanup redacts secret-shaped ssh output" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-remote-run-lock-redaction-#{System.unique_integer([:positive])}"
+      )
+
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+    end)
+
+    try do
+      fake_ssh = Path.join(test_root, "ssh")
+
+      File.mkdir_p!(test_root)
+      System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+
+      File.write!(fake_ssh, """
+      #!/bin/sh
+      printf 'Authorization: Bearer remote-lock-secret\\napi_key=remote-api-secret\\n'
+      exit 17
+      """)
+
+      File.chmod!(fake_ssh, 0o755)
+      write_workflow_file!(Workflow.workflow_file_path())
+
+      log =
+        capture_log(fn ->
+          Workspace.remove_run_lock(
+            "/remote/home/workspaces/web/surf_run_remote_lock",
+            %{id: "issue-remote-lock", identifier: "ENG-LOCK", run_id: "surf_run_remote_lock"},
+            "worker-01"
+          )
+        end)
+
+      assert log =~ "run_id=surf_run_remote_lock"
+      assert log =~ "Authorization: Bearer [REDACTED]"
+      assert log =~ "api_key=[REDACTED]"
+      refute log =~ "remote-lock-secret"
+      refute log =~ "remote-api-secret"
     after
       File.rm_rf(test_root)
     end

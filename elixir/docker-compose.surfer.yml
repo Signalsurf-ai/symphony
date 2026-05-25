@@ -1,0 +1,21 @@
+services:
+  surfer:
+    build:
+      context: ..
+      dockerfile: elixir/Dockerfile
+    image: surfer:0.1
+    env_file:
+      - path: .env.surfer.example
+      - path: .env.surfer
+        required: false
+    environment:
+      HOME: /home/surfer
+    ports:
+      - "${SURFER_HOST_BIND:-127.0.0.1}:4000:4000"
+    volumes:
+      - ${SURFER_HOST_WORKSPACE_ROOT:-/srv/surfer/workspaces}:/srv/surfer/workspaces
+      - ${SURFER_HOST_LOGS_DIR:-/srv/surfer/logs}:/srv/surfer/logs
+      - ${SURFER_HOST_STATE_DIR:-/srv/surfer/state}:/srv/surfer/state
+      - ${SURFER_HOST_CODEX_HOME:-/srv/surfer/codex}:/home/surfer/.codex
+      - ./SURFER_WORKFLOW.example.md:/app/WORKFLOW.md:ro
+    restart: unless-stopped

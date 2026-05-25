@@ -1,10 +1,11 @@
 defmodule SymphonyElixir.Linear.Client do
   @moduledoc """
-  Thin Linear GraphQL client for polling candidate issues.
+  Thin Linear GraphQL client for legacy polling and Surfer Linear writes.
   """
 
   require Logger
   alias SymphonyElixir.{Config, Linear.Issue}
+  alias SymphonyElixir.Surfer.SecretRedactor
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
@@ -179,7 +180,7 @@ defmodule SymphonyElixir.Linear.Client do
         {:error, {:linear_api_status, response.status}}
 
       {:error, reason} ->
-        Logger.error("Linear GraphQL request failed: #{inspect(reason)}")
+        Logger.error("Linear GraphQL request failed: #{safe_inspect(reason)}")
         {:error, {:linear_api_request, reason}}
     end
   end
@@ -360,6 +361,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp summarize_error_body(body) when is_binary(body) do
     body
+    |> SecretRedactor.redact_text()
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
     |> truncate_error_body()
@@ -368,8 +370,15 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp summarize_error_body(body) do
     body
-    |> inspect(limit: 20, printable_limit: @max_error_body_log_bytes)
+    |> safe_inspect(limit: 20, printable_limit: @max_error_body_log_bytes)
     |> truncate_error_body()
+  end
+
+  defp safe_inspect(term, opts \\ []) do
+    term
+    |> SecretRedactor.redact()
+    |> inspect(opts)
+    |> SecretRedactor.redact_text()
   end
 
   defp truncate_error_body(body) when is_binary(body) do
@@ -381,7 +390,7 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp graphql_headers do
-    case Config.settings!().tracker.api_key do
+    case linear_graphql_token(Config.settings!()) do
       nil ->
         {:error, :missing_linear_api_token}
 
@@ -393,6 +402,19 @@ defmodule SymphonyElixir.Linear.Client do
          ]}
     end
   end
+
+  defp linear_graphql_token(settings) do
+    surfer_token = settings.surfer.platforms.linear.access_token
+    tracker_token = settings.tracker.api_key
+
+    cond do
+      settings.surfer.platforms.linear.enabled == true and nonblank?(surfer_token) -> surfer_token
+      nonblank?(tracker_token) -> tracker_token
+      true -> nil
+    end
+  end
+
+  defp nonblank?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp post_graphql_request(payload, headers) do
     Req.post(Config.settings!().tracker.endpoint,

@@ -115,12 +115,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-1001"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-1001"}}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-1001"}}}'
             ;;
           4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-1001"}}}'
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
@@ -221,12 +221,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{\"id\":1,\"result\":{}}'
             ;;
           2)
-            printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-88\"}}}'
             ;;
           3)
-            printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-88\"}}}'
+            printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-88\"}}}'
             ;;
           4)
+            printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-88\"}}}'
             printf '%s\\n' '{\"method\":\"turn/input_required\",\"id\":\"resp-1\",\"params\":{\"requiresInput\":true,\"reason\":\"blocked\"}}'
             ;;
           *)
@@ -262,6 +262,78 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "app server redacts secret-shaped turn failure logs" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-redacted-turn-failure-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-188")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+      while IFS= read -r _line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-188"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-188"}}}'
+            printf '%s\\n' '{"method":"turn/failed","params":{"reason":"authorization: Bearer codex-secret-token","detail":"access_token=codex-secret-token"}}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-redacted-turn-failure",
+        identifier: "MT-188",
+        title: "Redact turn failure",
+        description: "Ensure app-server turn failure logs are redacted",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-188",
+        labels: ["backend"]
+      }
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+          assert {:error, {:turn_failed, params}} = AppServer.run(workspace, "Trigger failure", issue)
+          assert params["reason"] =~ "codex-secret-token"
+        end)
+
+      assert log =~ "authorization: Bearer [REDACTED]"
+      assert log =~ "access_token=[REDACTED]"
+      refute log =~ "codex-secret-token"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server fails when command execution approval is required under safer defaults" do
     test_root =
       Path.join(
@@ -286,9 +358,11 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-89"}}}'
             ;;
           3)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-89"}}}'
+            ;;
+          4)
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-89"}}}'
             printf '%s\\n' '{"id":99,"method":"item/commandExecution/requestApproval","params":{"command":"gh pr view","cwd":"/tmp","reason":"need approval"}}'
             ;;
@@ -1066,6 +1140,114 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "app server redacts malformed dynamic tool results before returning them to Codex" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-tool-result-redaction-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-90C")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex-tool-result-redaction.trace")
+      previous_trace = System.get_env("SYMP_TEST_CODEx_TRACE")
+
+      on_exit(fn ->
+        if is_binary(previous_trace) do
+          System.put_env("SYMP_TEST_CODEx_TRACE", previous_trace)
+        else
+          System.delete_env("SYMP_TEST_CODEx_TRACE")
+        end
+      end)
+
+      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex-tool-result-redaction.trace}"
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' \"$line\" >> \"$trace_file\"
+
+        case \"$count\" in
+          1)
+            printf '%s\\n' '{\"id\":1,\"result\":{}}'
+            ;;
+          2)
+            ;;
+          3)
+            printf '%s\\n' '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-90c\"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-90c\"}}}'
+            printf '%s\\n' '{\"id\":104,\"method\":\"item/tool/call\",\"params\":{\"tool\":\"linear_graphql\",\"callId\":\"call-90c\",\"threadId\":\"thread-90c\",\"turnId\":\"turn-90c\",\"arguments\":{\"query\":\"query Viewer { viewer { id } }\"}}}'
+            ;;
+          5)
+            printf '%s\\n' '{\"method\":\"turn/completed\"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "#{codex_binary} app-server"
+      )
+
+      issue = %Issue{
+        id: "issue-tool-result-redaction",
+        identifier: "MT-90C",
+        title: "Tool result redaction",
+        description: "Ensure malformed dynamic tool results are redacted before returning to Codex",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-90C",
+        labels: ["backend"]
+      }
+
+      tool_executor = fn _tool, _arguments ->
+        {:error, %{authorization: "Bearer tool-result-secret", reason: "access_token=tool-result-secret"}}
+      end
+
+      assert {:ok, _result} =
+               AppServer.run(workspace, "Handle malformed tool result", issue, tool_executor: tool_executor)
+
+      trace = File.read!(trace_file)
+      lines = String.split(trace, "\n", trim: true)
+
+      assert Enum.any?(lines, fn line ->
+               if String.starts_with?(line, "JSON:") do
+                 payload =
+                   line
+                   |> String.trim_leading("JSON:")
+                   |> Jason.decode!()
+
+                 payload["id"] == 104 and
+                   get_in(payload, ["result", "success"]) == false and
+                   String.contains?(get_in(payload, ["result", "output"]), "authorization: \"[REDACTED]\"") and
+                   String.contains?(get_in(payload, ["result", "output"]), "access_token=[REDACTED]") and
+                   get_in(payload, ["result", "contentItems", Access.at(0), "text"]) ==
+                     get_in(payload, ["result", "output"])
+               else
+                 false
+               end
+             end)
+
+      refute trace =~ "tool-result-secret"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server buffers partial JSON lines until newline terminator" do
     test_root =
       Path.join(
@@ -1091,12 +1273,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '{"id":1,"result":{},"padding":"%s"}\\n' "$padding"
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-91"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-91"}}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-91"}}}'
             ;;
           4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-91"}}}'
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
@@ -1154,13 +1336,15 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-92"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-92"}}}'
+            printf '%s\\n' '{"method":"thread/configured","params":{"side":"before-thread"}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-92"}}}'
             ;;
           4)
-            printf '%s\\n' 'warning: this is stderr noise' >&2
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-92"}}}'
+            printf '%s\\n' '{"method":"item/started","params":{"message":"debug notification"}}'
+            printf '%s\\n' 'warning: this is stderr noise Authorization: Bearer stderr-secret' >&2
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
@@ -1192,14 +1376,20 @@ defmodule SymphonyElixir.AppServerTest do
       on_message = fn message -> send(test_pid, {:app_server_message, message}) end
 
       log =
-        capture_log(fn ->
+        capture_log([level: :debug], fn ->
           assert {:ok, _result} =
-                   AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message)
+                   AppServer.run(workspace, "Capture stderr log", issue,
+                     on_message: on_message,
+                     log_context: " run_id=surf_run_stderr"
+                   )
         end)
 
       assert_received {:app_server_message, %{event: :turn_completed}}
       refute_received {:app_server_message, %{event: :malformed}}
-      assert log =~ "Codex turn stream output: warning: this is stderr noise"
+      assert log =~ "Codex turn stream run_id=surf_run_stderr output: warning: this is stderr noise Authorization: Bearer [REDACTED]"
+      assert log =~ "Ignoring message while waiting for response run_id=surf_run_stderr:"
+      assert log =~ "Codex notification run_id=surf_run_stderr: \"item/started\""
+      refute log =~ "stderr-secret"
     after
       File.rm_rf(test_root)
     end
@@ -1229,12 +1419,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-93"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-93"}}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-93"}}}'
             ;;
           4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-93"}}}'
             printf '%s\\n' '{"method":"turn/completed"'
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
@@ -1315,12 +1505,12 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":1,"result":{}}'
             ;;
           2)
-            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-remote"}}}'
             ;;
           3)
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-remote"}}}'
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-remote"}}}'
             ;;
           4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-remote"}}}'
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;

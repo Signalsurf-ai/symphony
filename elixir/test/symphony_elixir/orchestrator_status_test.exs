@@ -1054,6 +1054,24 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert checking_rendered =~ "checking now…"
   end
 
+  test "status dashboard shows webhook/direct-dispatch mode when polling is disabled" do
+    snapshot =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         rate_limits: nil,
+         polling: %{enabled?: false, checking?: false, next_poll_in_ms: nil, poll_interval_ms: 30_000}
+       }}
+
+    rendered = StatusDashboard.format_snapshot_content_for_test(snapshot, 0.0)
+
+    assert rendered =~ "Trigger mode:"
+    assert rendered =~ "webhook/direct dispatch"
+    refute rendered =~ "Next refresh:"
+  end
+
   test "status dashboard adds a spacer line before backoff queue when no agents are active" do
     snapshot_data =
       {:ok,

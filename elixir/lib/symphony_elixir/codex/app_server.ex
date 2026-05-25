@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
   require Logger
   alias SymphonyElixir.{Codex.DynamicTool, Config, PathSafety, SSH}
+  alias SymphonyElixir.Surfer.SecretRedactor
 
   @initialize_id 1
   @thread_start_id 2
@@ -22,6 +23,7 @@ defmodule SymphonyElixir.Codex.AppServer do
           turn_sandbox_policy: map(),
           thread_id: String.t(),
           workspace: Path.t(),
+          log_context: String.t(),
           worker_host: String.t() | nil
         }
 
@@ -39,13 +41,14 @@ defmodule SymphonyElixir.Codex.AppServer do
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
     worker_host = Keyword.get(opts, :worker_host)
+    log_context = Keyword.get(opts, :log_context, "")
 
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
          {:ok, port} <- start_port(expanded_workspace, worker_host) do
       metadata = port_metadata(port, worker_host)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
-           {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
+           {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies, log_context) do
         {:ok,
          %{
            port: port,
@@ -56,6 +59,7 @@ defmodule SymphonyElixir.Codex.AppServer do
            turn_sandbox_policy: session_policies.turn_sandbox_policy,
            thread_id: thread_id,
            workspace: expanded_workspace,
+           log_context: log_context,
            worker_host: worker_host
          }}
       else
@@ -75,23 +79,25 @@ defmodule SymphonyElixir.Codex.AppServer do
           auto_approve_requests: auto_approve_requests,
           turn_sandbox_policy: turn_sandbox_policy,
           thread_id: thread_id,
-          workspace: workspace
+          workspace: workspace,
+          log_context: session_log_context
         },
         prompt,
         issue,
         opts \\ []
       ) do
     on_message = Keyword.get(opts, :on_message, &default_on_message/1)
+    log_context = Keyword.get(opts, :log_context, session_log_context || "")
 
     tool_executor =
       Keyword.get(opts, :tool_executor, fn tool, arguments ->
         DynamicTool.execute(tool, arguments)
       end)
 
-    case start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
+    case start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy, log_context) do
       {:ok, turn_id} ->
         session_id = "#{thread_id}-#{turn_id}"
-        Logger.info("Codex session started for #{issue_context(issue)} session_id=#{session_id}")
+        Logger.info("Codex session started for #{issue_context(issue)}#{log_context} session_id=#{session_id}")
 
         emit_message(
           on_message,
@@ -104,9 +110,9 @@ defmodule SymphonyElixir.Codex.AppServer do
           metadata
         )
 
-        case await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
+        case await_turn_completion(port, on_message, tool_executor, auto_approve_requests, log_context) do
           {:ok, result} ->
-            Logger.info("Codex session completed for #{issue_context(issue)} session_id=#{session_id}")
+            Logger.info("Codex session completed for #{issue_context(issue)}#{log_context} session_id=#{session_id}")
 
             {:ok,
              %{
@@ -117,7 +123,7 @@ defmodule SymphonyElixir.Codex.AppServer do
              }}
 
           {:error, reason} ->
-            Logger.warning("Codex session ended with error for #{issue_context(issue)} session_id=#{session_id}: #{inspect(reason)}")
+            Logger.warning("Codex session ended with error for #{issue_context(issue)}#{log_context} session_id=#{session_id}: #{safe_inspect(reason)}")
 
             emit_message(
               on_message,
@@ -133,7 +139,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         end
 
       {:error, reason} ->
-        Logger.error("Codex session failed for #{issue_context(issue)}: #{inspect(reason)}")
+        Logger.error("Codex session failed for #{issue_context(issue)}#{log_context}: #{safe_inspect(reason)}")
         emit_message(on_message, :startup_failed, %{reason: reason}, metadata)
         {:error, reason}
     end
@@ -238,7 +244,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp send_initialize(port) do
+  defp send_initialize(port, log_context) do
     payload = %{
       "method" => "initialize",
       "id" => @initialize_id,
@@ -256,7 +262,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
     send_message(port, payload)
 
-    with {:ok, _} <- await_response(port, @initialize_id) do
+    with {:ok, _} <- await_response(port, @initialize_id, log_context) do
       send_message(port, %{"method" => "initialized", "params" => %{}})
       :ok
     end
@@ -270,14 +276,14 @@ defmodule SymphonyElixir.Codex.AppServer do
     Config.codex_runtime_settings(workspace, remote: true)
   end
 
-  defp do_start_session(port, workspace, session_policies) do
-    case send_initialize(port) do
-      :ok -> start_thread(port, workspace, session_policies)
+  defp do_start_session(port, workspace, session_policies, log_context) do
+    case send_initialize(port, log_context) do
+      :ok -> start_thread(port, workspace, session_policies, log_context)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp start_thread(port, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox}) do
+  defp start_thread(port, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox}, log_context) do
     send_message(port, %{
       "method" => "thread/start",
       "id" => @thread_start_id,
@@ -289,7 +295,7 @@ defmodule SymphonyElixir.Codex.AppServer do
       }
     })
 
-    case await_response(port, @thread_start_id) do
+    case await_response(port, @thread_start_id, log_context) do
       {:ok, %{"thread" => thread_payload}} ->
         case thread_payload do
           %{"id" => thread_id} -> {:ok, thread_id}
@@ -301,7 +307,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
+  defp start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy, log_context) do
     send_message(port, %{
       "method" => "turn/start",
       "id" => @turn_start_id,
@@ -320,28 +326,29 @@ defmodule SymphonyElixir.Codex.AppServer do
       }
     })
 
-    case await_response(port, @turn_start_id) do
+    case await_response(port, @turn_start_id, log_context) do
       {:ok, %{"turn" => %{"id" => turn_id}}} -> {:ok, turn_id}
       other -> other
     end
   end
 
-  defp await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
+  defp await_turn_completion(port, on_message, tool_executor, auto_approve_requests, log_context) do
     receive_loop(
       port,
       on_message,
       Config.settings!().codex.turn_timeout_ms,
       "",
       tool_executor,
-      auto_approve_requests
+      auto_approve_requests,
+      log_context
     )
   end
 
-  defp receive_loop(port, on_message, timeout_ms, pending_line, tool_executor, auto_approve_requests) do
+  defp receive_loop(port, on_message, timeout_ms, pending_line, tool_executor, auto_approve_requests, log_context) do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = pending_line <> to_string(chunk)
-        handle_incoming(port, on_message, complete_line, timeout_ms, tool_executor, auto_approve_requests)
+        handle_incoming(port, on_message, complete_line, timeout_ms, tool_executor, auto_approve_requests, log_context)
 
       {^port, {:data, {:noeol, chunk}}} ->
         receive_loop(
@@ -350,7 +357,8 @@ defmodule SymphonyElixir.Codex.AppServer do
           timeout_ms,
           pending_line <> to_string(chunk),
           tool_executor,
-          auto_approve_requests
+          auto_approve_requests,
+          log_context
         )
 
       {^port, {:exit_status, status}} ->
@@ -361,7 +369,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp handle_incoming(port, on_message, data, timeout_ms, tool_executor, auto_approve_requests) do
+  defp handle_incoming(port, on_message, data, timeout_ms, tool_executor, auto_approve_requests, log_context) do
     payload_string = to_string(data)
 
     case Jason.decode(payload_string) do
@@ -400,10 +408,10 @@ defmodule SymphonyElixir.Codex.AppServer do
           on_message,
           payload,
           payload_string,
-          method,
           timeout_ms,
           tool_executor,
-          auto_approve_requests
+          auto_approve_requests,
+          log_context
         )
 
       {:ok, payload} ->
@@ -417,10 +425,10 @@ defmodule SymphonyElixir.Codex.AppServer do
           metadata_from_message(port, payload)
         )
 
-        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests, log_context)
 
       {:error, _reason} ->
-        log_non_json_stream_line(payload_string, "turn stream")
+        log_non_json_stream_line(payload_string, "turn stream", log_context)
 
         if protocol_message_candidate?(payload_string) do
           emit_message(
@@ -434,7 +442,7 @@ defmodule SymphonyElixir.Codex.AppServer do
           )
         end
 
-        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests, log_context)
     end
   end
 
@@ -456,11 +464,12 @@ defmodule SymphonyElixir.Codex.AppServer do
          on_message,
          payload,
          payload_string,
-         method,
          timeout_ms,
          tool_executor,
-         auto_approve_requests
+         auto_approve_requests,
+         log_context
        ) do
+    method = Map.fetch!(payload, "method")
     metadata = metadata_from_message(port, payload)
 
     case maybe_handle_approval_request(
@@ -484,7 +493,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         {:error, {:turn_input_required, payload}}
 
       :approved ->
-        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests, log_context)
 
       :approval_required ->
         emit_message(
@@ -517,8 +526,8 @@ defmodule SymphonyElixir.Codex.AppServer do
             metadata
           )
 
-          Logger.debug("Codex notification: #{inspect(method)}")
-          receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+          Logger.debug("Codex notification#{log_context}: #{inspect(method)}")
+          receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests, log_context)
         end
     end
   end
@@ -700,10 +709,12 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp normalize_dynamic_tool_result(result) do
+    output = safe_inspect(result)
+
     %{
       "success" => false,
-      "output" => inspect(result),
-      "contentItems" => dynamic_tool_content_items(inspect(result))
+      "output" => output,
+      "contentItems" => dynamic_tool_content_items(output)
     }
   end
 
@@ -919,18 +930,18 @@ defmodule SymphonyElixir.Codex.AppServer do
     String.starts_with?(normalized_label, "approve") or String.starts_with?(normalized_label, "allow")
   end
 
-  defp await_response(port, request_id) do
-    with_timeout_response(port, request_id, Config.settings!().codex.read_timeout_ms, "")
+  defp await_response(port, request_id, log_context) do
+    with_timeout_response(port, request_id, Config.settings!().codex.read_timeout_ms, "", log_context)
   end
 
-  defp with_timeout_response(port, request_id, timeout_ms, pending_line) do
+  defp with_timeout_response(port, request_id, timeout_ms, pending_line, log_context) do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = pending_line <> to_string(chunk)
-        handle_response(port, request_id, complete_line, timeout_ms)
+        handle_response(port, request_id, complete_line, timeout_ms, log_context)
 
       {^port, {:data, {:noeol, chunk}}} ->
-        with_timeout_response(port, request_id, timeout_ms, pending_line <> to_string(chunk))
+        with_timeout_response(port, request_id, timeout_ms, pending_line <> to_string(chunk), log_context)
 
       {^port, {:exit_status, status}} ->
         {:error, {:port_exit, status}}
@@ -940,7 +951,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp handle_response(port, request_id, data, timeout_ms) do
+  defp handle_response(port, request_id, data, timeout_ms, log_context) do
     payload = to_string(data)
 
     case Jason.decode(payload) do
@@ -954,29 +965,37 @@ defmodule SymphonyElixir.Codex.AppServer do
         {:error, {:response_error, response_payload}}
 
       {:ok, %{} = other} ->
-        Logger.debug("Ignoring message while waiting for response: #{inspect(other)}")
-        with_timeout_response(port, request_id, timeout_ms, "")
+        Logger.debug("Ignoring message while waiting for response#{log_context}: #{safe_inspect(other)}")
+        with_timeout_response(port, request_id, timeout_ms, "", log_context)
 
       {:error, _} ->
-        log_non_json_stream_line(payload, "response stream")
-        with_timeout_response(port, request_id, timeout_ms, "")
+        log_non_json_stream_line(payload, "response stream", log_context)
+        with_timeout_response(port, request_id, timeout_ms, "", log_context)
     end
   end
 
-  defp log_non_json_stream_line(data, stream_label) do
+  defp log_non_json_stream_line(data, stream_label, log_context) do
     text =
       data
       |> to_string()
       |> String.trim()
       |> String.slice(0, @max_stream_log_bytes)
+      |> SecretRedactor.redact_text()
 
     if text != "" do
       if String.match?(text, ~r/\b(error|warn|warning|failed|fatal|panic|exception)\b/i) do
-        Logger.warning("Codex #{stream_label} output: #{text}")
+        Logger.warning("Codex #{stream_label}#{log_context} output: #{text}")
       else
-        Logger.debug("Codex #{stream_label} output: #{text}")
+        Logger.debug("Codex #{stream_label}#{log_context} output: #{text}")
       end
     end
+  end
+
+  defp safe_inspect(term, opts \\ []) do
+    term
+    |> SecretRedactor.redact()
+    |> inspect(opts)
+    |> SecretRedactor.redact_text()
   end
 
   defp protocol_message_candidate?(data) do

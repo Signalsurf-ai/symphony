@@ -1,6 +1,6 @@
 # Symphony Elixir
 
-This directory contains the Elixir agent orchestration service that polls Linear, creates per-issue workspaces, and runs Codex in app-server mode.
+This directory contains the Elixir agent orchestration service that runs Codex in app-server mode, creates per-run workspaces, accepts Surfer webhook/direct-dispatch requests, and still contains the legacy Symphony Linear project poller for non-Surfer or fallback workflows with Surfer platform ingress disabled.
 
 ## Environment
 
@@ -12,11 +12,13 @@ This directory contains the Elixir agent orchestration service that polls Linear
 ## Codebase-Specific Conventions
 
 - Runtime config is loaded from `WORKFLOW.md` front matter via `SymphonyElixir.Workflow` and `SymphonyElixir.Config`.
-- Keep the implementation aligned with [`../SPEC.md`](../SPEC.md) where practical.
-  - The implementation may be a superset of the spec.
-  - The implementation must not conflict with the spec.
-  - If implementation changes meaningfully alter the intended behavior, update the spec in the same
-    change where practical so the spec stays current.
+- For Surfer integration work, read and follow [`../docs/surfer-v0.1-prd.md`](../docs/surfer-v0.1-prd.md) before changing runtime code.
+- Keep legacy Symphony polling behavior aligned with [`../SPEC.md`](../SPEC.md) where practical.
+  - `SPEC.md` remains the legacy Symphony polling contract.
+  - Surfer behavior is governed by [`../docs/surfer-v0.1-prd.md`](../docs/surfer-v0.1-prd.md) and
+    `SURFER_WORKFLOW.example.md`.
+  - If Surfer facts contradict the PRD, update the PRD in the same change or stop and surface the
+    contradiction.
 - Prefer adding config access through `SymphonyElixir.Config` instead of ad-hoc env reads.
 - Workspace safety is critical:
   - Never run Codex turn cwd in source repo.

@@ -72,13 +72,14 @@ defmodule SymphonyElixir.Config.Schema do
 
     @primary_key false
     embedded_schema do
+      field(:enabled, :boolean, default: true)
       field(:interval_ms, :integer, default: 30_000)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:interval_ms], empty_values: [])
+      |> cast(attrs, [:enabled, :interval_ms], empty_values: [])
       |> validate_number(:interval_ms, greater_than: 0)
     end
   end
@@ -90,7 +91,7 @@ defmodule SymphonyElixir.Config.Schema do
 
     @primary_key false
     embedded_schema do
-      field(:root, :string, default: Path.join(System.tmp_dir!(), "symphony_workspaces"))
+      field(:root, :string)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -261,6 +262,352 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
+  defmodule Surfer do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+
+    defmodule Codex do
+      @moduledoc false
+      use Ecto.Schema
+      import Ecto.Changeset
+
+      @primary_key false
+
+      embedded_schema do
+        field(:auth, :string)
+        field(:home, :string)
+        field(:app_server_version, :string)
+        field(:health_check_command, :string, default: "codex login status")
+        field(:per_run_budget_usd, :float)
+        field(:daily_budget_usd, :float)
+      end
+
+      @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+      def changeset(schema, attrs) do
+        fields = [
+          :auth,
+          :home,
+          :app_server_version,
+          :health_check_command,
+          :per_run_budget_usd,
+          :daily_budget_usd
+        ]
+
+        schema
+        |> cast(attrs, fields, empty_values: [])
+        |> validate_required(:health_check_command)
+        |> validate_inclusion(:auth, ["openai_pro_oauth"])
+        |> validate_app_server_version_pin()
+        |> validate_number(:per_run_budget_usd, greater_than: 0)
+        |> validate_number(:daily_budget_usd, greater_than: 0)
+      end
+
+      defp validate_app_server_version_pin(changeset) do
+        case get_field(changeset, :auth) do
+          "openai_pro_oauth" -> validate_required(changeset, :app_server_version)
+          _auth -> changeset
+        end
+      end
+    end
+
+    defmodule Storage do
+      @moduledoc false
+      use Ecto.Schema
+      import Ecto.Changeset
+
+      @primary_key false
+
+      embedded_schema do
+        field(:state_dir, :string)
+        field(:logs_dir, :string)
+        field(:sqlite_path, :string)
+        field(:retention_days, :integer, default: 90)
+        field(:workspace_retention_days, :integer, default: 14)
+        field(:disk_pressure_max_used_percent, :integer)
+      end
+
+      @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+      def changeset(schema, attrs) do
+        schema
+        |> cast(
+          attrs,
+          [
+            :state_dir,
+            :logs_dir,
+            :sqlite_path,
+            :retention_days,
+            :workspace_retention_days,
+            :disk_pressure_max_used_percent
+          ],
+          empty_values: []
+        )
+        |> validate_number(:retention_days, greater_than: 0)
+        |> validate_number(:workspace_retention_days, greater_than: 0)
+        |> validate_number(:disk_pressure_max_used_percent, greater_than: 0, less_than_or_equal_to: 100)
+      end
+    end
+
+    defmodule Discord do
+      @moduledoc false
+      use Ecto.Schema
+      import Ecto.Changeset
+
+      @primary_key false
+
+      embedded_schema do
+        field(:enabled, :boolean, default: false)
+        field(:interactions_path, :string, default: "/webhooks/discord/interactions")
+        field(:message_ingress_path, :string, default: "/webhooks/discord/message")
+        field(:message_ingress_secret, :string)
+        field(:message_ingress_secret_env, :string)
+        field(:message_ingress_secret_next, :string)
+        field(:message_ingress_secret_next_env, :string)
+        field(:public_key, :string)
+        field(:public_key_env, :string)
+        field(:public_key_next, :string)
+        field(:public_key_next_env, :string)
+        field(:bot_token, :string)
+        field(:bot_token_env, :string)
+        field(:report_channel, :string)
+        field(:report_channel_env, :string)
+        field(:allowed_guilds, {:array, :string}, default: [])
+        field(:allowed_guilds_env, :string)
+        field(:allowed_channels, {:array, :string}, default: [])
+        field(:allowed_channels_env, :string)
+        field(:signature_max_age_seconds, :integer, default: 300)
+        field(:per_user_cooldown_seconds, :integer, default: 30)
+        field(:per_channel_queued_limit, :integer, default: 3)
+        field(:per_user_daily_run_limit, :integer)
+        field(:per_channel_daily_run_limit, :integer)
+      end
+
+      @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+      def changeset(schema, attrs) do
+        schema
+        |> cast(
+          attrs,
+          [
+            :enabled,
+            :interactions_path,
+            :message_ingress_path,
+            :message_ingress_secret,
+            :message_ingress_secret_env,
+            :message_ingress_secret_next,
+            :message_ingress_secret_next_env,
+            :public_key,
+            :public_key_env,
+            :public_key_next,
+            :public_key_next_env,
+            :bot_token,
+            :bot_token_env,
+            :report_channel,
+            :report_channel_env,
+            :allowed_guilds,
+            :allowed_guilds_env,
+            :allowed_channels,
+            :allowed_channels_env,
+            :signature_max_age_seconds,
+            :per_user_cooldown_seconds,
+            :per_channel_queued_limit,
+            :per_user_daily_run_limit,
+            :per_channel_daily_run_limit
+          ],
+          empty_values: []
+        )
+        |> validate_number(:signature_max_age_seconds, greater_than: 0)
+        |> validate_number(:per_user_cooldown_seconds, greater_than: 0)
+        |> validate_number(:per_channel_queued_limit, greater_than: 0)
+        |> validate_number(:per_user_daily_run_limit, greater_than: 0)
+        |> validate_number(:per_channel_daily_run_limit, greater_than: 0)
+      end
+    end
+
+    defmodule GitHub do
+      @moduledoc false
+      use Ecto.Schema
+      import Ecto.Changeset
+
+      @primary_key false
+      @unsupported_app_auth_fields ~w(app_id installation_id private_key private_key_env)
+
+      embedded_schema do
+        field(:enabled, :boolean, default: false)
+        field(:token, :string)
+        field(:token_env, :string)
+        field(:company_brain_repo, :string)
+        field(:company_brain_paths, {:array, :string}, default: [])
+      end
+
+      @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+      def changeset(schema, attrs) do
+        schema
+        |> cast(attrs, [:enabled, :token, :token_env, :company_brain_repo, :company_brain_paths], empty_values: [])
+        |> reject_github_app_auth(attrs)
+      end
+
+      defp reject_github_app_auth(changeset, attrs) when is_map(attrs) do
+        attrs
+        |> Map.take(@unsupported_app_auth_fields)
+        |> Map.keys()
+        |> Enum.reduce(changeset, fn field, changeset ->
+          add_error(changeset, String.to_atom(field), "GitHub App auth is not supported in Surfer v0.1")
+        end)
+      end
+    end
+
+    defmodule Linear do
+      @moduledoc false
+      use Ecto.Schema
+      import Ecto.Changeset
+
+      @primary_key false
+
+      embedded_schema do
+        field(:enabled, :boolean, default: false)
+        field(:webhook_path, :string, default: "/webhooks/linear/agent")
+        field(:webhook_secret, :string)
+        field(:webhook_secret_env, :string)
+        field(:webhook_secret_next, :string)
+        field(:webhook_secret_next_env, :string)
+        field(:access_token, :string)
+        field(:access_token_env, :string)
+        field(:team_id, :string)
+        field(:team_id_env, :string)
+        field(:project_id, :string)
+        field(:project_id_env, :string)
+      end
+
+      @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+      def changeset(schema, attrs) do
+        fields = [
+          :enabled,
+          :webhook_path,
+          :webhook_secret,
+          :webhook_secret_env,
+          :webhook_secret_next,
+          :webhook_secret_next_env,
+          :access_token,
+          :access_token_env,
+          :team_id,
+          :team_id_env,
+          :project_id,
+          :project_id_env
+        ]
+
+        cast(
+          schema,
+          attrs,
+          fields,
+          empty_values: []
+        )
+      end
+    end
+
+    defmodule Platforms do
+      @moduledoc false
+      use Ecto.Schema
+      import Ecto.Changeset
+
+      @primary_key false
+
+      embedded_schema do
+        embeds_one(:discord, Discord, on_replace: :update, defaults_to_struct: true)
+        embeds_one(:github, GitHub, on_replace: :update, defaults_to_struct: true)
+        embeds_one(:linear, Linear, on_replace: :update, defaults_to_struct: true)
+      end
+
+      @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+      def changeset(schema, attrs) do
+        schema
+        |> cast(attrs, [])
+        |> cast_embed(:discord, with: &Discord.changeset/2)
+        |> cast_embed(:github, with: &GitHub.changeset/2)
+        |> cast_embed(:linear, with: &Linear.changeset/2)
+      end
+    end
+
+    defmodule Repository do
+      @moduledoc false
+      use Ecto.Schema
+      import Ecto.Changeset
+
+      @primary_key false
+
+      embedded_schema do
+        field(:key, :string)
+        field(:name, :string)
+        field(:repo, :string)
+        field(:url, :string)
+        field(:checkout_path, :string)
+        field(:default_branch, :string)
+        field(:workflow, :string)
+        field(:linear_team_ids, {:array, :string}, default: [])
+        field(:linear_project_ids, {:array, :string}, default: [])
+        field(:discord_channel_ids, {:array, :string}, default: [])
+        field(:company_brain_paths, {:array, :string}, default: [])
+      end
+
+      @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+      def changeset(schema, attrs) do
+        schema
+        |> cast(
+          attrs,
+          [
+            :key,
+            :name,
+            :repo,
+            :url,
+            :checkout_path,
+            :default_branch,
+            :workflow,
+            :linear_team_ids,
+            :linear_project_ids,
+            :discord_channel_ids,
+            :company_brain_paths
+          ],
+          empty_values: []
+        )
+        |> validate_checkout_path()
+      end
+
+      defp validate_checkout_path(changeset) do
+        validate_change(changeset, :checkout_path, fn :checkout_path, path ->
+          if is_binary(path) and Path.type(path) != :absolute do
+            [checkout_path: "must be an absolute path"]
+          else
+            []
+          end
+        end)
+      end
+    end
+
+    embedded_schema do
+      field(:name, :string, default: "Surfer")
+      field(:paused, :boolean, default: false)
+      field(:pause_mode, :string, default: "drain")
+      field(:external_base_url, :string)
+      field(:workspace_root, :string)
+      embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
+      embeds_one(:storage, Storage, on_replace: :update, defaults_to_struct: true)
+      embeds_one(:platforms, Platforms, on_replace: :update, defaults_to_struct: true)
+      embeds_many(:repositories, Repository, on_replace: :delete)
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:name, :paused, :pause_mode, :external_base_url, :workspace_root], empty_values: [])
+      |> validate_inclusion(:pause_mode, ["drain", "cancel"])
+      |> cast_embed(:codex, with: &Codex.changeset/2)
+      |> cast_embed(:storage, with: &Storage.changeset/2)
+      |> cast_embed(:platforms, with: &Platforms.changeset/2)
+      |> cast_embed(:repositories, with: &Repository.changeset/2)
+    end
+  end
+
   embedded_schema do
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
@@ -271,21 +618,23 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:surfer, Surfer, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
   def parse(config) when is_map(config) do
-    config
-    |> normalize_keys()
-    |> drop_nil_values()
-    |> changeset()
-    |> apply_action(:validate)
-    |> case do
-      {:ok, settings} ->
-        {:ok, finalize_settings(settings)}
+    config = config |> normalize_keys() |> drop_nil_values()
+    polling_enabled_configured? = polling_enabled_configured?(config)
 
-      {:error, changeset} ->
+    with {:ok, settings} <- config |> changeset() |> apply_action(:validate),
+         :ok <- validate_surfer_polling_boundary(settings, polling_enabled_configured?) do
+      {:ok, finalize_settings(settings, polling_enabled_configured?: polling_enabled_configured?)}
+    else
+      {:error, %Ecto.Changeset{} = changeset} ->
         {:error, {:invalid_workflow_config, format_errors(changeset)}}
+
+      {:error, message} when is_binary(message) ->
+        {:error, {:invalid_workflow_config, message}}
     end
   end
 
@@ -363,18 +712,15 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
+    |> cast_embed(:surfer, with: &Surfer.changeset/2)
   end
 
-  defp finalize_settings(settings) do
+  defp finalize_settings(settings, opts) do
     tracker = %{
       settings.tracker
       | api_key: resolve_secret_setting(settings.tracker.api_key, System.get_env("LINEAR_API_KEY")),
+        project_slug: resolve_secret_setting(settings.tracker.project_slug, System.get_env("LINEAR_PROJECT_SLUG")),
         assignee: resolve_secret_setting(settings.tracker.assignee, System.get_env("LINEAR_ASSIGNEE"))
-    }
-
-    workspace = %{
-      settings.workspace
-      | root: resolve_path_value(settings.workspace.root, Path.join(System.tmp_dir!(), "symphony_workspaces"))
     }
 
     codex = %{
@@ -383,7 +729,205 @@ defmodule SymphonyElixir.Config.Schema do
         turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
     }
 
-    %{settings | tracker: tracker, workspace: workspace, codex: codex}
+    surfer = finalize_surfer(settings.surfer, tracker.api_key)
+    polling = default_surfer_polling(settings.polling, surfer, Keyword.fetch!(opts, :polling_enabled_configured?))
+    default_workspace_root = Path.join(System.tmp_dir!(), "symphony_workspaces")
+    surfer_workspace_root = resolve_path_value(surfer.workspace_root, nil)
+
+    workspace = %{
+      settings.workspace
+      | root: resolve_path_value(settings.workspace.root, surfer_workspace_root || default_workspace_root)
+    }
+
+    surfer = %{surfer | workspace_root: surfer_workspace_root || workspace.root}
+
+    %{settings | tracker: tracker, polling: polling, workspace: workspace, codex: codex, surfer: surfer}
+  end
+
+  defp polling_enabled_configured?(%{"polling" => %{} = polling}), do: Map.has_key?(polling, "enabled")
+  defp polling_enabled_configured?(_config), do: false
+
+  defp default_surfer_polling(polling, surfer, false) do
+    if surfer_direct_ingress_enabled?(surfer), do: %{polling | enabled: false}, else: polling
+  end
+
+  defp default_surfer_polling(polling, _surfer, true), do: polling
+
+  defp validate_surfer_polling_boundary(settings, true) do
+    if settings.polling.enabled == true and surfer_direct_ingress_enabled?(settings.surfer) do
+      {:error, "polling.enabled cannot be true when Surfer direct ingress is enabled; use a legacy Symphony polling workflow with Surfer platforms disabled"}
+    else
+      :ok
+    end
+  end
+
+  defp validate_surfer_polling_boundary(_settings, false), do: :ok
+
+  defp surfer_direct_ingress_enabled?(%Surfer{} = surfer) do
+    surfer.platforms.linear.enabled == true or surfer.platforms.discord.enabled == true
+  end
+
+  defp finalize_surfer(%Surfer{} = surfer, linear_access_token_fallback) do
+    platforms = surfer.platforms
+
+    codex = %{
+      surfer.codex
+      | home: resolve_env_value_or_nil(surfer.codex.home) || System.get_env("SURFER_CODEX_HOME"),
+        app_server_version: resolve_env_value_or_nil(surfer.codex.app_server_version)
+    }
+
+    discord_report_channel =
+      resolve_secret_alias(platforms.discord.report_channel, platforms.discord.report_channel_env, nil)
+
+    discord_public_key =
+      resolve_secret_alias(platforms.discord.public_key, platforms.discord.public_key_env, nil)
+
+    discord_public_key_next =
+      resolve_secret_alias(platforms.discord.public_key_next, platforms.discord.public_key_next_env, nil)
+
+    discord_bot_token =
+      resolve_secret_alias(platforms.discord.bot_token, platforms.discord.bot_token_env, nil)
+
+    discord_message_ingress_secret =
+      resolve_secret_alias(platforms.discord.message_ingress_secret, platforms.discord.message_ingress_secret_env, nil)
+
+    discord_message_ingress_secret_next =
+      resolve_secret_alias(
+        platforms.discord.message_ingress_secret_next,
+        platforms.discord.message_ingress_secret_next_env,
+        nil
+      )
+
+    allowed_guilds =
+      resolve_env_list_alias(platforms.discord.allowed_guilds, platforms.discord.allowed_guilds_env)
+
+    allowed_channels =
+      resolve_env_list_alias(platforms.discord.allowed_channels, platforms.discord.allowed_channels_env)
+
+    discord = %{
+      platforms.discord
+      | report_channel: discord_report_channel,
+        message_ingress_secret: discord_message_ingress_secret,
+        message_ingress_secret_next: discord_message_ingress_secret_next,
+        public_key: discord_public_key,
+        public_key_next: discord_public_key_next,
+        bot_token: discord_bot_token,
+        allowed_guilds: allowed_guilds,
+        allowed_channels: allowed_channels
+    }
+
+    linear_webhook_secret =
+      resolve_secret_alias(platforms.linear.webhook_secret, platforms.linear.webhook_secret_env, nil)
+
+    linear_webhook_secret_next =
+      resolve_secret_alias(
+        platforms.linear.webhook_secret_next,
+        platforms.linear.webhook_secret_next_env,
+        nil
+      )
+
+    linear_access_token =
+      resolve_secret_alias(
+        platforms.linear.access_token,
+        platforms.linear.access_token_env,
+        linear_access_token_fallback
+      )
+
+    linear = %{
+      platforms.linear
+      | webhook_secret: linear_webhook_secret,
+        webhook_secret_next: linear_webhook_secret_next,
+        access_token: linear_access_token,
+        team_id: resolve_secret_alias(platforms.linear.team_id, platforms.linear.team_id_env, nil),
+        project_id: resolve_secret_alias(platforms.linear.project_id, platforms.linear.project_id_env, nil)
+    }
+
+    github = %{
+      platforms.github
+      | token: resolve_secret_alias(platforms.github.token, platforms.github.token_env, nil)
+    }
+
+    paused =
+      case System.get_env("SURFER_PAUSED") do
+        value when is_binary(value) -> surfer.paused or truthy_env?(value)
+        _ -> surfer.paused
+      end
+
+    pause_mode =
+      case System.get_env("SURFER_PAUSE_MODE") do
+        value when is_binary(value) -> value |> String.downcase() |> String.trim()
+        _ -> surfer.pause_mode || "drain"
+      end
+
+    platforms = %{platforms | discord: discord, github: github, linear: linear}
+
+    %{
+      surfer
+      | paused: paused,
+        pause_mode: pause_mode,
+        external_base_url: normalize_external_base_url(resolve_env_value_or_nil(surfer.external_base_url)),
+        codex: codex,
+        platforms: platforms,
+        repositories: Enum.map(surfer.repositories, &finalize_repository/1)
+    }
+  end
+
+  defp finalize_repository(%Surfer.Repository{} = repository) do
+    raw_url = resolve_env_value_or_nil(repository.url)
+    repo = resolve_env_value_or_nil(repository.repo) || repo_from_url(raw_url)
+    key = resolve_env_value_or_nil(repository.key) || resolve_env_value_or_nil(repository.name) || repo_slug(repo)
+    name = resolve_env_value_or_nil(repository.name) || key
+    url = raw_url || github_https_url(repo)
+
+    %{
+      repository
+      | key: key,
+        name: name,
+        repo: repo,
+        url: url,
+        checkout_path: resolve_env_value_or_nil(repository.checkout_path),
+        default_branch: resolve_env_value_or_nil(repository.default_branch),
+        workflow: resolve_env_value_or_nil(repository.workflow),
+        linear_team_ids: resolve_env_list(repository.linear_team_ids),
+        linear_project_ids: resolve_env_list(repository.linear_project_ids),
+        discord_channel_ids: resolve_env_list(repository.discord_channel_ids),
+        company_brain_paths: resolve_env_list(repository.company_brain_paths)
+    }
+  end
+
+  defp resolve_env_value_or_nil(value) when is_binary(value), do: resolve_env_value(value, nil)
+  defp resolve_env_value_or_nil(_value), do: nil
+
+  defp repo_from_url("https://github.com/" <> repo), do: String.trim_trailing(repo, ".git")
+  defp repo_from_url("git@github.com:" <> repo), do: String.trim_trailing(repo, ".git")
+  defp repo_from_url(_url), do: nil
+
+  defp repo_slug(repo) when is_binary(repo) do
+    repo
+    |> String.split("/")
+    |> List.last()
+  end
+
+  defp repo_slug(_repo), do: nil
+
+  defp github_https_url(repo) when is_binary(repo) and repo != "", do: "https://github.com/#{repo}"
+  defp github_https_url(_repo), do: nil
+
+  defp normalize_external_base_url(url) when is_binary(url) do
+    url
+    |> String.trim()
+    |> String.trim_trailing("/")
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_external_base_url(_url), do: nil
+
+  defp truthy_env?(value) when is_binary(value) do
+    normalized = value |> String.trim() |> String.downcase()
+    normalized in ["1", "true", "yes", "on"]
   end
 
   defp normalize_keys(value) when is_map(value) do
@@ -422,6 +966,53 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
+  defp resolve_secret_alias(value, env_name, fallback) do
+    resolve_secret_setting(value, nil) ||
+      resolve_env_name_secret(env_name) ||
+      normalize_secret_value(fallback)
+  end
+
+  defp resolve_env_name_secret(env_name) do
+    env_name
+    |> env_name_value()
+    |> normalize_secret_value()
+  end
+
+  defp resolve_env_list_alias(values, env_name) do
+    case resolve_env_list(values) do
+      [] -> resolve_env_name_list(env_name)
+      resolved -> resolved
+    end
+  end
+
+  defp resolve_env_name_list(env_name) do
+    case env_name_value(env_name) do
+      value when is_binary(value) ->
+        value
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+
+      _value ->
+        []
+    end
+  end
+
+  defp env_name_value(env_name) when is_binary(env_name) do
+    case String.trim(env_name) do
+      "" ->
+        nil
+
+      "$" <> _rest = env_ref ->
+        resolve_env_value(env_ref, nil)
+
+      name ->
+        System.get_env(name)
+    end
+  end
+
+  defp env_name_value(_env_name), do: nil
+
   defp resolve_path_value(value, default) when is_binary(value) do
     case normalize_path_token(value) do
       :missing ->
@@ -434,6 +1025,8 @@ defmodule SymphonyElixir.Config.Schema do
         path
     end
   end
+
+  defp resolve_path_value(_value, default), do: default
 
   defp resolve_env_value(value, fallback) when is_binary(value) do
     case env_reference_name(value) do
@@ -478,6 +1071,21 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp normalize_secret_value(_value), do: nil
+
+  defp resolve_env_list(values) when is_list(values) do
+    values
+    |> Enum.map(fn
+      value when is_binary(value) -> resolve_env_value(value, nil)
+      value -> value
+    end)
+    |> Enum.map(fn
+      value when is_binary(value) -> String.trim(value)
+      _value -> nil
+    end)
+    |> Enum.reject(&(&1 in [nil, ""]))
+  end
+
+  defp resolve_env_list(_values), do: []
 
   defp default_turn_sandbox_policy(workspace) do
     %{
@@ -543,7 +1151,10 @@ defmodule SymphonyElixir.Config.Schema do
   end
 
   defp flatten_errors(errors, prefix) when is_list(errors) do
-    Enum.map(errors, &(prefix <> " " <> &1))
+    Enum.flat_map(errors, fn
+      error when is_binary(error) -> [prefix <> " " <> error]
+      nested -> flatten_errors(nested, prefix)
+    end)
   end
 
   defp translate_error({message, options}) do

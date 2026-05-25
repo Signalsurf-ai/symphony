@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   """
 
   alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.Surfer.SecretRedactor
 
   @linear_graphql_tool "linear_graphql"
   @linear_graphql_description """
@@ -35,7 +36,7 @@ defmodule SymphonyElixir.Codex.DynamicTool do
       other ->
         failure_response(%{
           "error" => %{
-            "message" => "Unsupported dynamic tool: #{inspect(other)}.",
+            "message" => "Unsupported dynamic tool: #{safe_inspect(other)}.",
             "supportedTools" => supported_tool_names()
           }
         })
@@ -189,7 +190,7 @@ defmodule SymphonyElixir.Codex.DynamicTool do
     %{
       "error" => %{
         "message" => "Linear GraphQL request failed before receiving a successful response.",
-        "reason" => inspect(reason)
+        "reason" => safe_inspect(reason)
       }
     }
   end
@@ -198,9 +199,15 @@ defmodule SymphonyElixir.Codex.DynamicTool do
     %{
       "error" => %{
         "message" => "Linear GraphQL tool execution failed.",
-        "reason" => inspect(reason)
+        "reason" => safe_inspect(reason)
       }
     }
+  end
+
+  defp safe_inspect(reason) do
+    reason
+    |> inspect()
+    |> SecretRedactor.redact_text()
   end
 
   defp supported_tool_names do

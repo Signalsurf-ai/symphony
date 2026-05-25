@@ -19,24 +19,29 @@ defmodule SymphonyElixir.Application do
 
   use Application
 
+  alias SymphonyElixir.{Config, Surfer.CodexHealth}
+
   @impl true
   def start(_type, _args) do
-    :ok = SymphonyElixir.LogFile.configure()
+    with :ok <- Config.validate_startup!() do
+      :ok = SymphonyElixir.LogFile.configure()
+      _ = CodexHealth.run_startup_check()
 
-    children = [
-      {Phoenix.PubSub, name: SymphonyElixir.PubSub},
-      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
-      SymphonyElixir.WorkflowStore,
-      SymphonyElixir.Orchestrator,
-      SymphonyElixir.HttpServer,
-      SymphonyElixir.StatusDashboard
-    ]
+      children = [
+        {Phoenix.PubSub, name: SymphonyElixir.PubSub},
+        {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
+        SymphonyElixir.WorkflowStore,
+        SymphonyElixir.Orchestrator,
+        SymphonyElixir.HttpServer,
+        SymphonyElixir.StatusDashboard
+      ]
 
-    Supervisor.start_link(
-      children,
-      strategy: :one_for_one,
-      name: SymphonyElixir.Supervisor
-    )
+      Supervisor.start_link(
+        children,
+        strategy: :one_for_one,
+        name: SymphonyElixir.Supervisor
+      )
+    end
   end
 
   @impl true
