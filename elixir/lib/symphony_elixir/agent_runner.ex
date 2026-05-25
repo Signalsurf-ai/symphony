@@ -230,27 +230,51 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp workspace_target(issue, opts) do
     run_id = opts |> Keyword.get(:surfer_context) |> surfer_run_id()
+    repository_metadata = opts |> Keyword.get(:surfer_context) |> selected_repository_metadata()
 
     case {Keyword.fetch(opts, :workspace_identifier), run_id} do
       {{:ok, workspace_identifier}, run_id} ->
-        %{
-          id: Map.get(issue, :id),
-          identifier: Map.get(issue, :identifier),
-          run_id: run_id,
-          workspace_identifier: workspace_identifier
-        }
+        Map.merge(
+          %{
+            id: Map.get(issue, :id),
+            identifier: Map.get(issue, :identifier),
+            run_id: run_id,
+            workspace_identifier: workspace_identifier
+          },
+          repository_metadata
+        )
 
       {:error, run_id} when is_binary(run_id) and run_id != "" ->
-        %{
-          id: Map.get(issue, :id),
-          identifier: Map.get(issue, :identifier),
-          run_id: run_id
-        }
+        Map.merge(
+          %{
+            id: Map.get(issue, :id),
+            identifier: Map.get(issue, :identifier),
+            run_id: run_id
+          },
+          repository_metadata
+        )
 
       {:error, _run_id} ->
         issue
     end
   end
+
+  defp selected_repository_metadata(%{routing: routing}) when is_map(routing), do: selected_repository_metadata_from_routing(routing)
+  defp selected_repository_metadata(%{"routing" => routing}) when is_map(routing), do: selected_repository_metadata_from_routing(routing)
+  defp selected_repository_metadata(_context), do: %{}
+
+  defp selected_repository_metadata_from_routing(routing) do
+    %{
+      selected_repository_url: routing_value(routing, :repository_url),
+      selected_repository_full_name: routing_value(routing, :repository_full_name),
+      selected_repository_key: routing_value(routing, :repository_key) || routing_value(routing, :repository),
+      selected_repository_checkout_path: routing_value(routing, :checkout_path)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+    |> Map.new()
+  end
+
+  defp routing_value(routing, key) when is_map(routing), do: Map.get(routing, key) || Map.get(routing, to_string(key))
 
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     state_name

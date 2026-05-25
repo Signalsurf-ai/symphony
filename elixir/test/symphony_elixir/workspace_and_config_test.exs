@@ -40,6 +40,35 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "workspace after_create hook receives selected Surfer repository metadata" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-selected-repo-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "printf '%s\\n%s\\n' \"$SURFER_SELECTED_REPOSITORY_URL\" \"$SURFER_SELECTED_REPOSITORY_FULL_NAME\" > selected-repo.txt"
+      )
+
+      assert {:ok, workspace} =
+               Workspace.create_for_issue(%{
+                 id: "issue-selected-repo",
+                 identifier: "S-REPO",
+                 workspace_identifier: ["web", "surf_run_selected_repo"],
+                 selected_repository_url: "https://github.com/acme/web",
+                 selected_repository_full_name: "acme/web"
+               })
+
+      assert File.read!(Path.join(workspace, "selected-repo.txt")) ==
+               "https://github.com/acme/web\nacme/web\n"
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
   test "workspace path is deterministic per issue identifier" do
     workspace_root =
       Path.join(

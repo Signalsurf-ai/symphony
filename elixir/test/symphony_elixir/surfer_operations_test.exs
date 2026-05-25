@@ -349,6 +349,8 @@ defmodule SymphonyElixir.SurferOperationsTest do
     File.write!(log_path, """
     2026-05-19 run_id=#{request.run_id} started
     2026-05-19 run_id=other-run discord_interaction_token=other-token
+    2026-05-19 run_id=#{request.run_id} prompt="surfer implement routing"
+    2026-05-19 run_id=#{request.run_id} raw_body='raw platform request body must not be exposed'
     2026-05-19 run_id=#{request.run_id} Authorization: Bearer super-secret-token
     """)
 
@@ -394,6 +396,8 @@ defmodule SymphonyElixir.SurferOperationsTest do
 
     assert lookup.log_tail == [
              "2026-05-19 run_id=#{request.run_id} started",
+             "2026-05-19 run_id=#{request.run_id} prompt=[REDACTED]",
+             "2026-05-19 run_id=#{request.run_id} raw_body=[REDACTED]",
              "2026-05-19 run_id=#{request.run_id} Authorization: Bearer [REDACTED]"
            ]
 
@@ -759,6 +763,20 @@ defmodule SymphonyElixir.SurferOperationsTest do
     refute workflow =~ "LINEAR_PROJECT_SLUG"
   end
 
+  test "repo-level docs label SPEC polling as legacy rather than the Surfer v0.1 contract" do
+    root_readme = File.read!(Path.expand("../../../README.md", __DIR__))
+    elixir_readme = File.read!(Path.expand("../../README.md", __DIR__))
+    spec = File.read!(Path.expand("../../../SPEC.md", __DIR__))
+    agents = File.read!(Path.expand("../../AGENTS.md", __DIR__))
+
+    assert spec =~ "Legacy Symphony polling specification"
+    assert spec =~ "not the Surfer v0.1 product contract"
+    assert root_readme =~ "legacy Symphony polling demo"
+    assert elixir_readme =~ "legacy Symphony poller plus Surfer v0.1 runner"
+    assert agents =~ "Surfer behavior is governed by"
+    assert agents =~ "`SPEC.md` remains the legacy Symphony polling contract"
+  end
+
   test "Surfer docs tell operators to unpause before live preflight" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
 
@@ -850,9 +868,12 @@ defmodule SymphonyElixir.SurferOperationsTest do
 
   test "Surfer docs describe the selected run repository boundary for GitHub operations" do
     readme = File.read!(Path.expand("../../README.md", __DIR__))
+    workflow = File.read!(Path.expand("../../SURFER_WORKFLOW.example.md", __DIR__))
 
     assert readme =~ "GitHub PR creation/update and PR context reads require the selected run repository"
     assert readme =~ ~r/Surfer\s+rejects GitHub operations when `repo` differs from `selected_repo`/
+    assert readme =~ "SURFER_SELECTED_REPOSITORY_URL"
+    assert workflow =~ "SURFER_SELECTED_REPOSITORY_URL"
   end
 
   test "Surfer docs describe recursive first-turn prompt context redaction" do
@@ -877,6 +898,7 @@ defmodule SymphonyElixir.SurferOperationsTest do
     assert workflow =~ "message_ingress_secret_env: DISCORD_MESSAGE_INGRESS_SECRET"
     assert readme =~ "x-surfer-discord-relay-signature"
     assert readme =~ "HMAC-SHA256"
+    assert readme =~ "Message relay accepts only explicit"
   end
 
   test "Surfer hosting docs list every optional rotation env from the example file" do

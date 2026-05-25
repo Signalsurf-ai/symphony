@@ -16,7 +16,12 @@ workspace:
   root: $SURFER_WORKSPACE_ROOT
 hooks:
   after_create: |
-    git clone --depth 1 "$SURFER_REPOSITORY_URL" .
+    repository_url="${SURFER_SELECTED_REPOSITORY_URL:-$SURFER_REPOSITORY_URL}"
+    if [ -z "$repository_url" ]; then
+      echo "Surfer selected repository URL is required for workspace checkout" >&2
+      exit 64
+    fi
+    git clone --depth 1 "$repository_url" .
     if command -v mise >/dev/null 2>&1; then
       mise trust || true
       mise install || true

@@ -420,6 +420,67 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert run["error_message"] =~ "ambiguous_repository"
   end
 
+  test "Linear durable webhook fails visibly instead of dispatching without repository config" do
+    previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
+    on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)
+    System.put_env("LINEAR_WEBHOOK_SECRET", "secret")
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-linear-missing-route-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          linear:
+            enabled: true
+            webhook_secret: $LINEAR_WEBHOOK_SECRET
+            access_token: linear-token
+          github:
+            enabled: true
+            token: github-token
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_activity_fun, fn _session_id, _run_id -> :ok end)
+
+    Application.put_env(:symphony_elixir, :surfer_linear_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request})
+      :ok
+    end)
+
+    body = linear_agent_body("webhook-missing-route", "session-missing-route", "issue-missing-route")
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("linear-signature", linear_signature(body, "secret"))
+      |> post("/webhooks/linear/agent", body)
+
+    assert %{"ok" => true, "dispatched" => false, "routing_error" => routing_error, "run_id" => run_id} =
+             json_response(conn, 202)
+
+    assert routing_error =~ "ambiguous_repository"
+    refute_receive {:unexpected_dispatch, _request}, 200
+
+    assert {:ok, run} = RunLedger.get_run(db_path, run_id)
+    assert run["status"] == "awaiting_input"
+    assert run["error_code"] == "routing_failed"
+    assert run["error_message"] =~ "ambiguous_repository"
+  end
+
   test "Linear webhook updates agent session with Surfer run lookup URL before dispatch" do
     previous_secret = System.get_env("LINEAR_WEBHOOK_SECRET")
     on_exit(fn -> restore_env("LINEAR_WEBHOOK_SECRET", previous_secret) end)
@@ -1853,6 +1914,62 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     refute_receive {:unexpected_dispatch, _run_id}, 100
   end
 
+  test "Discord message ingress rejects uncommanded relay messages before claim or dispatch" do
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-message-uncommanded-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+    assert :ok = RunLedger.initialize(db_path)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            message_ingress_secret: relay-secret
+            bot_token: test-discord-bot-token
+            allowed_guilds:
+              - guild-1
+            allowed_channels:
+              - channel-1
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request.run_id})
+      :ok
+    end)
+
+    body =
+      Jason.encode!(%{
+        "id" => "message-uncommanded",
+        "guild_id" => "guild-1",
+        "channel_id" => "channel-1",
+        "content" => "please fix routing"
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_message_relay_signature_headers(body, "relay-secret")
+      |> post("/webhooks/discord/message", body)
+
+    assert json_response(conn, 400)["error"]["code"] == "unsupported_discord_message_command"
+    assert {:error, :not_found} = RunLedger.lookup_idempotency_key(db_path, "discord_message:guild-1:channel-1:message-uncommanded:durable_task")
+    refute_receive {:unexpected_dispatch, _run_id}, 100
+  end
+
   test "Discord message ingress fails closed when enabled without bot token" do
     db_path = Path.join(System.tmp_dir!(), "surfer-discord-message-missing-bot-token-#{System.unique_integer([:positive])}.sqlite3")
     File.rm_rf(db_path)
@@ -2517,6 +2634,92 @@ defmodule SymphonyElixir.SurferWebhookControllerTest do
     assert run["error_code"] == "routing_failed"
     assert run["error_message"] =~ "ambiguous_repository"
     refute run["payload_json"] =~ "ambiguous-token"
+  end
+
+  test "Discord issue creation asks for routing clarification when repository selection is ambiguous" do
+    {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
+    previous_public_key = System.get_env("DISCORD_PUBLIC_KEY")
+    on_exit(fn -> restore_env("DISCORD_PUBLIC_KEY", previous_public_key) end)
+    System.put_env("DISCORD_PUBLIC_KEY", Base.encode16(public_key, case: :lower))
+
+    db_path = Path.join(System.tmp_dir!(), "surfer-discord-issue-ambiguous-route-#{System.unique_integer([:positive])}.sqlite3")
+    File.rm_rf(db_path)
+    on_exit(fn -> File.rm_rf(db_path) end)
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: memory
+      surfer:
+        storage:
+          sqlite_path: #{db_path}
+        platforms:
+          discord:
+            enabled: true
+            public_key: $DISCORD_PUBLIC_KEY
+            bot_token: test-discord-bot-token
+        repositories:
+          - key: web
+            repo: acme/web
+          - key: api
+            repo: acme/api
+      ---
+      Prompt
+      """
+    )
+
+    WorkflowStore.force_reload()
+    parent = self()
+
+    Application.put_env(:symphony_elixir, :surfer_linear_issue_create_fun, fn attrs ->
+      send(parent, {:unexpected_issue_create, attrs})
+      {:ok, %{id: "issue-1", identifier: "SURF-1", url: "https://linear.app/acme/issue/SURF-1/test"}}
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_dispatch_fun, fn request ->
+      send(parent, {:unexpected_dispatch, request})
+      :ok
+    end)
+
+    Application.put_env(:symphony_elixir, :surfer_discord_interaction_response_fun, fn _application_id, _token, body ->
+      send(parent, {:interaction_response, body})
+      :ok
+    end)
+
+    command_body =
+      Jason.encode!(%{
+        id: "interaction-issue-route-ambiguous",
+        application_id: "app-1",
+        token: "ambiguous-issue-token",
+        type: 2,
+        guild_id: "guild-1",
+        channel_id: "channel-unknown",
+        member: %{user: %{id: "ambiguous-issue-user-1"}},
+        data: %{name: "surfer", options: [%{name: "issue", type: 1, options: [%{name: "prompt", type: 3, value: "Fix issue routing"}]}]}
+      })
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_discord_signature_headers(command_body, private_key)
+      |> post("/webhooks/discord/interactions", command_body)
+
+    assert json_response(conn, 200)["type"] == 5
+    assert_receive {:interaction_response, body}
+    assert body =~ "ambiguous repository"
+    assert body =~ "web"
+    assert body =~ "api"
+    refute_receive {:unexpected_issue_create, _attrs}, 200
+    refute_receive {:unexpected_dispatch, _request}, 100
+
+    assert {:ok, run_id} = RunLedger.lookup_idempotency_key(db_path, "discord_interaction:interaction-issue-route-ambiguous:issue_create")
+    assert {:ok, run} = RunLedger.get_run(db_path, run_id)
+    assert run["status"] == "awaiting_input"
+    assert run["error_code"] == "routing_failed"
+    assert run["error_message"] =~ "ambiguous_repository"
+    refute run["payload_json"] =~ "ambiguous-issue-token"
   end
 
   test "Discord interaction pause returns an immediate response without original-response edit or dispatch" do

@@ -4,6 +4,11 @@ Status: Draft v1 (language-agnostic)
 
 Purpose: Define a service that orchestrates coding agents to get project work done.
 
+Legacy Symphony polling specification: this document remains the contract for
+the original poll-based Symphony service. It is not the Surfer v0.1 product contract.
+Surfer v0.1 behavior is governed by `docs/surfer-v0.1-prd.md` and the webhook-first
+workflow in `elixir/SURFER_WORKFLOW.example.md`.
+
 ## Normative Language
 
 The key words `MUST`, `MUST NOT`, `REQUIRED`, `SHOULD`, `SHOULD NOT`, `RECOMMENDED`, `MAY`, and

@@ -1,7 +1,8 @@
 # Symphony Elixir
 
-This directory contains the current Elixir/OTP implementation of Symphony, based on
-[`SPEC.md`](../SPEC.md) at the repository root.
+This directory contains the Elixir/OTP service used as the legacy Symphony poller plus Surfer v0.1 runner.
+[`SPEC.md`](../SPEC.md) remains the legacy Symphony polling specification; Surfer v0.1 behavior is
+defined by the local PRD and the webhook-first `SURFER_WORKFLOW.example.md` workflow.
 
 > [!WARNING]
 > Symphony Elixir is prototype software intended for evaluation only and is presented as-is.
@@ -128,7 +129,9 @@ notification webhook contract instead of re-enabling project polling as the defa
   `surfer.platforms.discord.message_ingress_path`, HMAC-SHA256 relay verification, and the same
   configured guild/channel allowlists enforced before dispatch. Relay callers must sign
   `x-surfer-discord-relay-timestamp <> "." <> raw_body` with `DISCORD_MESSAGE_INGRESS_SECRET` and
-  send the hex digest as `x-surfer-discord-relay-signature`.
+  send the hex digest as `x-surfer-discord-relay-signature`. Message relay accepts only explicit
+  `surfer ...` command messages; ordinary allowed-channel messages are rejected before claim or
+  dispatch.
 - Discord idempotency keys require real interaction IDs, or real guild/channel/message IDs for
   message-relay ingress.
 - Discord-to-Linear issue creation through Linear `issueCreate`.
@@ -149,7 +152,12 @@ notification webhook contract instead of re-enabling project polling as the defa
   `repository_key`, Linear team IDs, Discord channel IDs, or a single configured fallback.
   Linear and Discord ingress apply this routing before dispatch; ambiguous routing is recorded as
   `awaiting_input`, and Discord interactions edit the original response with the ambiguous
-  repository candidates instead of silently starting work.
+  repository candidates instead of silently starting work. The workspace `after_create` hook
+  receives `SURFER_SELECTED_REPOSITORY_URL`, `SURFER_SELECTED_REPOSITORY_FULL_NAME`,
+  `SURFER_SELECTED_REPOSITORY_KEY`, and `SURFER_SELECTED_REPOSITORY_CHECKOUT_PATH` so checkout can
+  use the selected route instead of a global repository fallback. When GitHub outbound/context is
+  enabled, durable work without any configured repository route fails visibly instead of dispatching
+  an unrouted write run.
 - Daily Codex budget-cap enforcement at ingress from the SQLite usage ledger, plus active-run
   per-run and shared daily budget-cap status marking when recorded usage reaches the configured
   cap.
@@ -357,7 +365,8 @@ Fill in at minimum:
 - `DISCORD_ALLOWED_CHANNELS` as a comma-separated ingress allowlist
 - `DISCORD_REPORT_CHANNEL_ID`
 - `GITHUB_TOKEN`
-- `SURFER_REPOSITORY_URL`
+- `SURFER_REPOSITORY_URL` as a single-repository fallback for the example checkout hook; routed
+  Surfer runs set `SURFER_SELECTED_REPOSITORY_URL` before `after_create`.
 - `SURFER_PUBLIC_URL` when Linear agent sessions should link back to Surfer run lookup
 - `SURFER_WORKSPACE_ROOT`
 - `SURFER_LOGS_DIR`
@@ -489,6 +498,9 @@ GitHub:
    do not configure GitHub webhooks as Surfer triggers.
 5. GitHub PR creation/update and PR context reads require the selected run repository. Surfer
    rejects GitHub operations when `repo` differs from `selected_repo`, before any GitHub API call.
+6. The Surfer workspace hook receives `SURFER_SELECTED_REPOSITORY_URL` and related
+   `SURFER_SELECTED_REPOSITORY_*` metadata from the routing result. The example workflow falls back
+   to `SURFER_REPOSITORY_URL` only for single-repository deployments or local smoke setup.
 
 ### Runtime contract
 

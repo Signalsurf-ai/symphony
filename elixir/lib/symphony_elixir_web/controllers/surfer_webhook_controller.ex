@@ -237,6 +237,9 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
 
         {:error, :missing_discord_channel_id} ->
           error_response(conn, 400, "missing_discord_channel_id", "Discord channel id is required")
+
+        {:error, :unsupported_discord_message_command} ->
+          error_response(conn, 400, "unsupported_discord_message_command", "Discord message relay requires an explicit Surfer command")
       end
 
     emit_webhook_ack(:discord, path, started_at, response_conn)
@@ -1100,14 +1103,20 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
   end
 
   defp route_request_for_dispatch(%RunRequest{request: %{mode: mode}} = request)
-       when mode in [:issue_create, :lifecycle_control, "issue_create", "lifecycle_control"] do
+       when mode in [:lifecycle_control, "lifecycle_control"] do
     {:ok, request}
   end
 
   defp route_request_for_dispatch(%RunRequest{} = request) do
-    case Config.settings!().surfer.repositories do
+    settings = Config.settings!()
+
+    case settings.surfer.repositories do
       [] ->
-        {:ok, request}
+        if repository_route_required?(request, settings) do
+          {:error, {:ambiguous_repository, []}}
+        else
+          {:ok, request}
+        end
 
       repositories ->
         with {:ok, routed_request} <- RunRequest.route(request, repositories),
@@ -1116,6 +1125,15 @@ defmodule SymphonyElixirWeb.SurferWebhookController do
         end
     end
   end
+
+  defp repository_route_required?(%RunRequest{request: %{mode: mode}, constraints: constraints}, settings)
+       when mode in [:durable_task, "durable_task"] do
+    github_enabled? = settings.surfer.platforms.github.enabled == true
+    allow_pr_creation? = Map.get(constraints, :allow_pr_creation) || Map.get(constraints, "allow_pr_creation")
+    github_enabled? and allow_pr_creation?
+  end
+
+  defp repository_route_required?(_request, _settings), do: false
 
   defp persist_routed_run(%RunRequest{} = request) do
     case surfer_ledger_path() do

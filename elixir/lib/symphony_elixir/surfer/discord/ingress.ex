@@ -61,11 +61,23 @@ defmodule SymphonyElixir.Surfer.Discord.Ingress do
         {:error, {:unauthorized_channel, channel_id}}
 
       true ->
-        message
-        |> put_received_at(Keyword.get(opts, :received_at))
-        |> RunRequest.from_discord_message()
+        with :ok <- require_surfer_message_command(message) do
+          message
+          |> put_received_at(Keyword.get(opts, :received_at))
+          |> RunRequest.from_discord_message()
+        end
     end
   end
+
+  defp require_surfer_message_command(%{"content" => content}) when is_binary(content) do
+    if content |> String.trim_leading() |> String.downcase() |> String.starts_with?("surfer") do
+      :ok
+    else
+      {:error, :unsupported_discord_message_command}
+    end
+  end
+
+  defp require_surfer_message_command(_message), do: {:error, :unsupported_discord_message_command}
 
   defp put_received_at(message, received_at) when is_binary(received_at) do
     Map.put(message, "timestamp", received_at)

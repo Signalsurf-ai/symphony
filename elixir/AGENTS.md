@@ -13,11 +13,12 @@ This directory contains the Elixir agent orchestration service that runs Codex i
 
 - Runtime config is loaded from `WORKFLOW.md` front matter via `SymphonyElixir.Workflow` and `SymphonyElixir.Config`.
 - For Surfer integration work, read and follow [`../docs/surfer-v0.1-prd.md`](../docs/surfer-v0.1-prd.md) before changing runtime code.
-- Keep the implementation aligned with [`../SPEC.md`](../SPEC.md) where practical.
-  - The implementation may be a superset of the spec.
-  - The implementation must not conflict with the spec.
-  - If implementation changes meaningfully alter the intended behavior, update the spec in the same
-    change where practical so the spec stays current.
+- Keep legacy Symphony polling behavior aligned with [`../SPEC.md`](../SPEC.md) where practical.
+  - `SPEC.md` remains the legacy Symphony polling contract.
+  - Surfer behavior is governed by [`../docs/surfer-v0.1-prd.md`](../docs/surfer-v0.1-prd.md) and
+    `SURFER_WORKFLOW.example.md`.
+  - If Surfer facts contradict the PRD, update the PRD in the same change or stop and surface the
+    contradiction.
 - Prefer adding config access through `SymphonyElixir.Config` instead of ad-hoc env reads.
 - Workspace safety is critical:
   - Never run Codex turn cwd in source repo.

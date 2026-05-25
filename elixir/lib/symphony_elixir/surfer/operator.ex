@@ -303,8 +303,40 @@ defmodule SymphonyElixir.Surfer.Operator do
   end
 
   defp redact_log_line(line) do
-    SecretRedactor.redact_text(line)
+    case Jason.decode(line) do
+      {:ok, decoded} ->
+        decoded
+        |> SecretRedactor.redact()
+        |> redact_log_payload()
+        |> Jason.encode!()
+
+      {:error, _reason} ->
+        line
+        |> redact_unstructured_log_payloads()
+        |> SecretRedactor.redact_text()
+    end
   end
+
+  defp redact_unstructured_log_payloads(line) do
+    Regex.replace(unstructured_log_payload_regex(), line, "\\1[REDACTED]")
+  end
+
+  defp unstructured_log_payload_regex do
+    ~r/\b((?:body|content|description|prompt|prompt_context|promptContext|raw_body|rawBody|raw_payload|rawPayload|platform_payload|platformPayload|event_payload|eventPayload|interaction_payload|interactionPayload)\s*(?::|=>|=)\s*)(?:"[^"]*"|'[^']*'|[^\s,}]+)/i
+  end
+
+  defp redact_log_payload(value) when is_map(value) do
+    Map.new(value, fn {key, nested} ->
+      cond do
+        raw_platform_payload_key?(key) and lookup_key(key) != "payload" -> {key, @redacted}
+        prompt_body_key?(key) -> {key, @redacted}
+        true -> {key, redact_log_payload(nested)}
+      end
+    end)
+  end
+
+  defp redact_log_payload(value) when is_list(value), do: Enum.map(value, &redact_log_payload/1)
+  defp redact_log_payload(value), do: value
 
   defp decode_payload(row) when is_map(row) do
     case Map.get(row, "payload_json") do

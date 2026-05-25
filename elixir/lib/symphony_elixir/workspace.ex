@@ -394,7 +394,7 @@ defmodule SymphonyElixir.Workspace do
 
     task =
       Task.async(fn ->
-        System.cmd("sh", ["-lc", command], cd: workspace, stderr_to_stdout: true)
+        System.cmd("sh", ["-lc", command], cd: workspace, stderr_to_stdout: true, env: hook_env(issue_context))
       end)
 
     case Task.yield(task, timeout_ms) do
@@ -415,7 +415,17 @@ defmodule SymphonyElixir.Workspace do
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
 
-    case run_remote_command(worker_host, "cd #{shell_escape(workspace)} && #{command}", timeout_ms) do
+    script =
+      [
+        remote_shell_assign("workspace", workspace),
+        remote_hook_env(issue_context),
+        "cd \"$workspace\"",
+        command
+      ]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+
+    case run_remote_command(worker_host, script, timeout_ms) do
       {:ok, cmd_result} ->
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
@@ -587,7 +597,11 @@ defmodule SymphonyElixir.Workspace do
       issue_id: value(issue, :id),
       issue_identifier: value(issue, :identifier) || "issue",
       run_id: value(issue, :run_id),
-      workspace_identifier: value(issue, :workspace_identifier)
+      workspace_identifier: value(issue, :workspace_identifier),
+      selected_repository_url: value(issue, :selected_repository_url),
+      selected_repository_full_name: value(issue, :selected_repository_full_name),
+      selected_repository_key: value(issue, :selected_repository_key),
+      selected_repository_checkout_path: value(issue, :selected_repository_checkout_path)
     }
   end
 
@@ -610,6 +624,27 @@ defmodule SymphonyElixir.Workspace do
   end
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, to_string(key))
+
+  defp hook_env(issue_context) do
+    issue_context
+    |> repository_hook_env()
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+  end
+
+  defp remote_hook_env(issue_context) do
+    issue_context
+    |> hook_env()
+    |> Enum.map_join("\n", fn {key, value} -> remote_shell_assign(key, value) end)
+  end
+
+  defp repository_hook_env(issue_context) do
+    [
+      {"SURFER_SELECTED_REPOSITORY_URL", Map.get(issue_context, :selected_repository_url)},
+      {"SURFER_SELECTED_REPOSITORY_FULL_NAME", Map.get(issue_context, :selected_repository_full_name)},
+      {"SURFER_SELECTED_REPOSITORY_KEY", Map.get(issue_context, :selected_repository_key)},
+      {"SURFER_SELECTED_REPOSITORY_CHECKOUT_PATH", Map.get(issue_context, :selected_repository_checkout_path)}
+    ]
+  end
 
   defp issue_log_context(%{issue_id: issue_id, issue_identifier: issue_identifier} = issue_context) do
     run_context =
