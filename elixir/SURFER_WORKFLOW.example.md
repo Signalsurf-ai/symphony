@@ -99,6 +99,8 @@ surfer:
       workflow: ./WORKFLOW.md
       linear_team_ids:
         - $LINEAR_TEAM_ID
+      linear_project_ids:
+        - $LINEAR_PROJECT_ID
       discord_channel_ids:
         - $DISCORD_REPORT_CHANNEL_ID
       company_brain_paths:

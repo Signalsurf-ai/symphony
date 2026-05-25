@@ -13,6 +13,7 @@ defmodule SymphonyElixir.SurferConfigTest do
     previous_linear_secret_next = System.get_env("LINEAR_WEBHOOK_SECRET_NEXT")
     previous_linear_token = System.get_env("LINEAR_ACCESS_TOKEN")
     previous_linear_team_id = System.get_env("LINEAR_TEAM_ID")
+    previous_linear_project_id = System.get_env("LINEAR_PROJECT_ID")
     previous_github_token = System.get_env("GITHUB_TOKEN")
     previous_external_base_url = System.get_env("SURFER_EXTERNAL_BASE_URL")
     previous_codex_home = System.get_env("SURFER_CODEX_HOME")
@@ -30,6 +31,7 @@ defmodule SymphonyElixir.SurferConfigTest do
       restore_env("LINEAR_WEBHOOK_SECRET_NEXT", previous_linear_secret_next)
       restore_env("LINEAR_ACCESS_TOKEN", previous_linear_token)
       restore_env("LINEAR_TEAM_ID", previous_linear_team_id)
+      restore_env("LINEAR_PROJECT_ID", previous_linear_project_id)
       restore_env("GITHUB_TOKEN", previous_github_token)
       restore_env("SURFER_EXTERNAL_BASE_URL", previous_external_base_url)
       restore_env("SURFER_CODEX_HOME", previous_codex_home)
@@ -47,6 +49,7 @@ defmodule SymphonyElixir.SurferConfigTest do
     System.put_env("LINEAR_WEBHOOK_SECRET_NEXT", "linear-secret-next")
     System.put_env("LINEAR_ACCESS_TOKEN", "linear-token")
     System.put_env("LINEAR_TEAM_ID", "team-1")
+    System.put_env("LINEAR_PROJECT_ID", "project-1")
     System.put_env("GITHUB_TOKEN", "github-token")
     System.put_env("SURFER_EXTERNAL_BASE_URL", "https://surfer.example.com")
     System.put_env("SURFER_CODEX_HOME", "/srv/surfer/codex-home")
@@ -110,6 +113,8 @@ defmodule SymphonyElixir.SurferConfigTest do
             workflow: ./WORKFLOW.md
             linear_team_ids:
               - $LINEAR_TEAM_ID
+            linear_project_ids:
+              - $LINEAR_PROJECT_ID
             discord_channel_ids:
               - $DISCORD_REPORT_CHANNEL_ID
             company_brain_paths:
@@ -163,6 +168,7 @@ defmodule SymphonyElixir.SurferConfigTest do
                url: "https://github.com/openai/symphony",
                checkout_path: "/srv/surfer/repos/symphony",
                linear_team_ids: ["team-1"],
+               linear_project_ids: ["project-1"],
                discord_channel_ids: ["channel-1"],
                company_brain_paths: ["meetings/"]
              }

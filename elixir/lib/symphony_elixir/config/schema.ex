@@ -545,6 +545,7 @@ defmodule SymphonyElixir.Config.Schema do
         field(:default_branch, :string)
         field(:workflow, :string)
         field(:linear_team_ids, {:array, :string}, default: [])
+        field(:linear_project_ids, {:array, :string}, default: [])
         field(:discord_channel_ids, {:array, :string}, default: [])
         field(:company_brain_paths, {:array, :string}, default: [])
       end
@@ -563,6 +564,7 @@ defmodule SymphonyElixir.Config.Schema do
             :default_branch,
             :workflow,
             :linear_team_ids,
+            :linear_project_ids,
             :discord_channel_ids,
             :company_brain_paths
           ],
@@ -887,6 +889,7 @@ defmodule SymphonyElixir.Config.Schema do
         default_branch: resolve_env_value_or_nil(repository.default_branch),
         workflow: resolve_env_value_or_nil(repository.workflow),
         linear_team_ids: resolve_env_list(repository.linear_team_ids),
+        linear_project_ids: resolve_env_list(repository.linear_project_ids),
         discord_channel_ids: resolve_env_list(repository.discord_channel_ids),
         company_brain_paths: resolve_env_list(repository.company_brain_paths)
     }

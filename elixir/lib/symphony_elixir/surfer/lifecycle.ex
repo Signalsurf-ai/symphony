@@ -10,7 +10,7 @@ defmodule SymphonyElixir.Surfer.Lifecycle do
   alias SymphonyElixir.Surfer.Linear.Session
   alias SymphonyElixir.Surfer.{Metrics, RunLedger, RunRequest, SecretRedactor}
 
-  @linear_lineage_keys ~w(issue_id issue_identifier team_id agent_session_id comment_id agent_activity_id)
+  @linear_lineage_keys ~w(issue_id issue_identifier team_id project_id agent_session_id comment_id agent_activity_id)
   @discord_lineage_keys ~w(guild_id channel_id thread_id message_id interaction_id application_id)
   @github_lineage_keys ~w(repo pull_request_number)
   @routing_keys ~w(repository repository_key repository_full_name repository_url checkout_path workflow_path branch_hint confidence reason company_brain_paths)

@@ -77,6 +77,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
                issue_id: issue.id,
                issue_identifier: issue.identifier,
                team_id: get_in(issue_payload, ["team", "id"]),
+               project_id: linear_project_id(issue_payload),
                agent_session_id: Map.get(session, "id"),
                comment_id: Map.get(comment, "id"),
                agent_activity_id: Map.get(agent_activity, "id")
@@ -567,13 +568,17 @@ defmodule SymphonyElixir.Surfer.RunRequest do
     end
   end
 
-  defp resolve_source_hint(%__MODULE__{lineage: %{linear: %{team_id: team_id}}}, repositories) when is_binary(team_id) do
+  defp resolve_source_hint(%__MODULE__{source: %{platform: :linear}, lineage: %{linear: linear}}, repositories)
+       when is_map(linear) do
+    team_id = routing_value(linear, :team_id)
+    project_id = routing_value(linear, :project_id)
+
     repositories
-    |> Enum.filter(&(team_id in &1.linear_team_ids))
-    |> repository_match_result("Linear team id #{team_id} matched repository config.")
+    |> Enum.flat_map(&linear_repository_match(&1, team_id, project_id))
+    |> strongest_linear_match()
   end
 
-  defp resolve_source_hint(%__MODULE__{lineage: %{discord: %{channel_id: channel_id}}}, repositories)
+  defp resolve_source_hint(%__MODULE__{source: %{platform: :discord}, lineage: %{discord: %{channel_id: channel_id}}}, repositories)
        when is_binary(channel_id) do
     repositories
     |> Enum.filter(&(channel_id in &1.discord_channel_ids))
@@ -585,6 +590,63 @@ defmodule SymphonyElixir.Surfer.RunRequest do
   defp repository_match_result([repository], reason), do: {:ok, repository, :source_hint, reason}
   defp repository_match_result([], _reason), do: :no_match
   defp repository_match_result(repositories, _reason), do: {:error, {:ambiguous_repository, Enum.map(repositories, & &1.key)}}
+
+  defp linear_repository_match(%{linear_project_ids: project_ids, linear_team_ids: team_ids} = repository, team_id, project_id)
+       when is_list(project_ids) and project_ids != [] do
+    if is_binary(project_id) and project_id in project_ids and linear_team_constraint_matches?(team_ids, team_id) do
+      [{repository, linear_match_specificity(team_ids), linear_match_reason(team_ids, team_id, project_id)}]
+    else
+      []
+    end
+  end
+
+  defp linear_repository_match(%{linear_team_ids: team_ids} = repository, team_id, _project_id)
+       when is_list(team_ids) and team_ids != [] do
+    if is_binary(team_id) and team_id in team_ids do
+      [{repository, 1, "Linear team id #{team_id} matched repository config."}]
+    else
+      []
+    end
+  end
+
+  defp linear_repository_match(_repository, _team_id, _project_id), do: []
+
+  defp linear_team_constraint_matches?([], _team_id), do: true
+
+  defp linear_team_constraint_matches?(team_ids, team_id) when is_list(team_ids) and is_binary(team_id) do
+    team_id in team_ids
+  end
+
+  defp linear_team_constraint_matches?(_team_ids, _team_id), do: false
+
+  defp linear_match_specificity([]), do: 2
+  defp linear_match_specificity(_team_ids), do: 3
+
+  defp linear_match_reason([], _team_id, project_id) do
+    "Linear project id #{project_id} matched repository config."
+  end
+
+  defp linear_match_reason(_team_ids, team_id, project_id) do
+    "Linear team id #{team_id} and project id #{project_id} matched repository config."
+  end
+
+  defp strongest_linear_match([]), do: :no_match
+
+  defp strongest_linear_match(matches) do
+    {_repository, strongest_specificity, _reason} =
+      Enum.max_by(matches, fn {_repository, specificity, _reason} -> specificity end)
+
+    matches
+    |> Enum.filter(fn {_repository, specificity, _reason} -> specificity == strongest_specificity end)
+    |> case do
+      [{repository, _specificity, reason}] ->
+        {:ok, repository, :source_hint, reason}
+
+      repositories ->
+        keys = Enum.map(repositories, fn {repository, _specificity, _reason} -> repository.key end)
+        {:error, {:ambiguous_repository, keys}}
+    end
+  end
 
   defp fallback_repository([]), do: {:error, {:ambiguous_repository, []}}
   defp fallback_repository([repository]), do: {:ok, repository, :fallback, "Only configured repository."}
@@ -617,6 +679,7 @@ defmodule SymphonyElixir.Surfer.RunRequest do
       workflow: repository_value(repository, :workflow) || "./WORKFLOW.md",
       default_branch: repository_value(repository, :default_branch),
       linear_team_ids: repository_value(repository, :linear_team_ids) || [],
+      linear_project_ids: repository_value(repository, :linear_project_ids) || [],
       discord_channel_ids: repository_value(repository, :discord_channel_ids) || [],
       company_brain_paths: repository_value(repository, :company_brain_paths) || []
     }
@@ -646,6 +709,10 @@ defmodule SymphonyElixir.Surfer.RunRequest do
 
     lineage = put_in(request.lineage, [:github, :repo], repository.repo)
     %{request | routing: routing, lineage: lineage}
+  end
+
+  defp linear_project_id(issue_payload) when is_map(issue_payload) do
+    get_in(issue_payload, ["project", "id"]) || Map.get(issue_payload, "projectId")
   end
 
   defp repo_from_url("https://github.com/" <> repo), do: String.trim_trailing(repo, ".git")

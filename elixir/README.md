@@ -149,8 +149,10 @@ notification webhook contract instead of re-enabling project polling as the defa
   these controls bypass Discord run cooldown and queue/daily-cap gates so active runs can still be
   stopped or handed off when invocation limits are saturated.
 - Deterministic repository routing from PRD-shaped `key`/`repo` repository config, explicit
-  `repository_key`, Linear team IDs, Discord channel IDs, or a single configured fallback.
-  Linear and Discord ingress apply this routing before dispatch; ambiguous routing is recorded as
+  `repository_key`, Linear project IDs, Linear team IDs, Discord channel IDs, or a single
+  configured fallback. Linear project-aware routes win over team-only fallback; when a repository
+  entry configures both `linear_team_ids` and `linear_project_ids`, both must match. Linear and
+  Discord ingress apply this routing before dispatch; ambiguous routing is recorded as
   `awaiting_input`, and Discord interactions edit the original response with the ambiguous
   repository candidates instead of silently starting work. The workspace `after_create` hook
   receives `SURFER_SELECTED_REPOSITORY_URL`, `SURFER_SELECTED_REPOSITORY_FULL_NAME`,
@@ -493,7 +495,9 @@ GitHub:
 2. Configure the git author identity used by Codex commits, usually a bot name plus a GitHub
    no-reply or team-controlled email address. This is not an email inbox integration.
 3. Configure `surfer.repositories` with `key`, `repo`, `checkout_path`, `default_branch`, and the
-   Linear team or Discord channel IDs that should route to that repository.
+   Linear project IDs, Linear team IDs, or Discord channel IDs that should route to that repository.
+   Use project IDs for precise repo selection inside a broad team; use `team + project` on one entry
+   when the combination, not either value alone, identifies the repo.
 4. Set `COMPANY_BRAIN_REPO=Signalsurf-ai/signalsurf-company-brain` when
    on-demand Company Brain retrieval should be available.
 5. Surfer v0.1 uses GitHub only for outbound repository, PR, and Company Brain context operations;

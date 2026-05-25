@@ -549,6 +549,68 @@ defmodule SymphonyElixir.SurferRunRequestTest do
     assert context.routing.repository_full_name == "acme/web"
   end
 
+  test "routes Linear requests by configured project id" do
+    assert {:ok, request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
+               "action" => "created",
+               "agentSession" => %{
+                 "id" => "session-1",
+                 "issue" => %{
+                   "id" => "issue-1",
+                   "identifier" => "ENG-1",
+                   "title" => "Fix",
+                   "team" => %{"id" => "team-platform"},
+                   "project" => %{"id" => "project-web"},
+                   "state" => %{"name" => "Todo"}
+                 }
+               }
+             })
+
+    repositories = [
+      %{key: "api", repo: "acme/api", linear_project_ids: ["project-api"]},
+      %{key: "web", repo: "acme/web", linear_project_ids: ["project-web"]}
+    ]
+
+    assert {:ok, routed} = RunRequest.route(request, repositories)
+    assert routed.routing.repository_key == "web"
+    assert routed.routing.reason =~ "Linear project id"
+  end
+
+  test "routes Linear requests by combined team and project before team fallback" do
+    assert {:ok, request} =
+             RunRequest.from_linear_agent_session_event(%{
+               "type" => "AgentSessionEvent",
+               "action" => "created",
+               "agentSession" => %{
+                 "id" => "session-1",
+                 "issue" => %{
+                   "id" => "issue-1",
+                   "identifier" => "ENG-1",
+                   "title" => "Fix",
+                   "team" => %{"id" => "team-platform"},
+                   "project" => %{"id" => "project-symphony"},
+                   "state" => %{"name" => "Todo"}
+                 }
+               }
+             })
+
+    repositories = [
+      %{key: "team-default", repo: "acme/default", linear_team_ids: ["team-platform"]},
+      %{
+        key: "symphony",
+        repo: "acme/symphony",
+        linear_team_ids: ["team-platform"],
+        linear_project_ids: ["project-symphony"]
+      },
+      %{key: "web", repo: "acme/web", linear_team_ids: ["team-platform"], linear_project_ids: ["project-web"]}
+    ]
+
+    assert {:ok, routed} = RunRequest.route(request, repositories)
+    assert routed.routing.repository_key == "symphony"
+    assert routed.routing.reason =~ "Linear team id team-platform and project id project-symphony"
+  end
+
   test "routes Discord requests by configured channel id" do
     assert {:ok, request} =
              RunRequest.from_discord_message(%{
